@@ -36,12 +36,16 @@ fun SuperScreen(
     ) { uri: Uri? ->
         uri?.let {
             selectedUri = it
-            val cursor = context.contentResolver.query(it, null, null, null, null)
-            cursor?.use { c ->
-                if (c.moveToFirst()) {
-                    val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    if (nameIdx >= 0) selectedFileName = c.getString(nameIdx)
+            try {
+                context.contentResolver.query(it, null, null, null, null)?.use { c ->
+                    if (c.moveToFirst()) {
+                        val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIdx >= 0) selectedFileName = c.getString(nameIdx)
+                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.w("SuperScreen", "Query failed: ${e.message}")
+                selectedFileName = it.lastPathSegment
             }
         }
     }
