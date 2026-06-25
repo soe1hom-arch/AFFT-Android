@@ -1,5 +1,5 @@
 package com.afft.app.ui
-
+import android.util.Log
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,9 +24,10 @@ import com.afft.app.model.OperationLog
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.Sidebar
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-defSidebarScreen(
+fun SidebarScreen(
     afftService: AFFTService,
     logs: List<OperationLog>,
     isRunning: Boolean

@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.afft.app.model.OperationLog
 
 @Composable
-defSidebar(
+Sidebar(
     selectedSection: String,
     onSectionSelect: (String) -> Unit,
     operationLogs: List<OperationLog>,
@@ -70,7 +70,7 @@ defSidebar(
 }
 
 @Composable
-defSidebarMenuItem(
+SidebarMenuItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
@@ -104,7 +104,7 @@ defSidebarMenuItem(
 }
 
 @Composable
-defProcessMonitorSection(operationLogs: List<OperationLog>) {
+ProcessMonitorSection(operationLogs: List<OperationLog>) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text(
             "Running Operations",
@@ -132,7 +132,7 @@ defProcessMonitorSection(operationLogs: List<OperationLog>) {
 }
 
 @Composable
-defProcessLogCard(log: OperationLog) {
+ProcessLogCard(log: OperationLog) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -166,7 +166,7 @@ defProcessLogCard(log: OperationLog) {
 }
 
 @Composable
-defLogsSection(operationLogs: List<OperationLog>) {
+LogsSection(operationLogs: List<OperationLog>) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text(
             "Operation Logs",
@@ -198,7 +198,7 @@ defLogsSection(operationLogs: List<OperationLog>) {
 }
 
 @Composable
-defLogEntry(log: OperationLog) {
+LogEntry(log: OperationLog) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(8.dp),
         verticalAlignment = Alignment.Top
