@@ -112,7 +112,7 @@ object SparseImage {
             val chunkHeaderSize = 12
             val fileHeaderSize = 28
 
-            val maxBlocksPerChunk = (maxUint32 - chunkHeaderSize) / blockSize
+            val maxBlocksPerChunk = ((maxUint32 - chunkHeaderSize) / blockSize).toInt()
 
             if (maxBlocksPerChunk <= 0) return false
 
@@ -133,7 +133,7 @@ object SparseImage {
                 var remaining = blocks
 
                 while (remaining > 0) {
-                    val chunkBlocks = minOf(remaining, maxBlocksPerChunk.toInt())
+                    val chunkBlocks = minOf(remaining, maxBlocksPerChunk)
                     val chunkDataLen = chunkBlocks * blockSize
                     val dataEnd = minOf(offset + chunkDataLen, dataLen)
                     val chunkData = rawData.copyOfRange(offset, dataEnd) +

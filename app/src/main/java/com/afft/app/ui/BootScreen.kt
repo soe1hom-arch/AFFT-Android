@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -19,6 +18,7 @@ import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BootScreen(
     afftService: AFFTService,
@@ -70,7 +70,6 @@ fun BootScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Boot type chip selector
         Text("Pilih tipe boot:", style = MaterialTheme.typography.titleSmall)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -82,7 +81,7 @@ fun BootScreen(
                 FilterChip(
                     selected = selectedBootType == type,
                     onClick = { selectedBootType = type },
-                    label = { Text(type.displayName, fontSize = 11.sp) }
+                    label = { Text(type.displayName) }
                 )
             }
         }
@@ -95,7 +94,7 @@ fun BootScreen(
                 FilterChip(
                     selected = selectedBootType == type,
                     onClick = { selectedBootType = type },
-                    label = { Text(type.displayName, fontSize = 11.sp) }
+                    label = { Text(type.displayName) }
                 )
             }
         }

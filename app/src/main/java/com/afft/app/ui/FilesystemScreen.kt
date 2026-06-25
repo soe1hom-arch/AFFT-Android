@@ -17,9 +17,11 @@ import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
+import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.launch
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun FilesystemScreen(
     afftService: AFFTService,
     logs: List<String>,
