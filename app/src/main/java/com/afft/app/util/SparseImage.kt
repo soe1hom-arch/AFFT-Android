@@ -7,45 +7,11 @@ import java.nio.ByteOrder
 
 object SparseImage {
 
-    private const val SPARSE_MAGIC = 0xED26FF3A
+    private val SPARSE_MAGIC = 0xED26FF3A.toInt()
     private const val RAW_CHUNK_TYPE = 0xCAC1
     private const val FILL_CHUNK_TYPE = 0xCAC2
     private const val DONTCARE_CHUNK_TYPE = 0xCAC3
     private const val CRC32_CHUNK_TYPE = 0xCAC4
-
-    data class SparseHeader(
-        val magic: Int,
-        val majorVersion: Short,
-        val minorVersion: Short,
-        val fileHeaderSize: Short,
-        val chunkHeaderSize: Short,
-        val blockSize: Int,
-        val totalBlocks: Int,
-        val totalChunks: Int,
-        val imageChecksum: Int
-    )
-
-    private fun readSparseHeader(file: RandomAccessFile): SparseHeader? {
-        return try {
-            val buf = ByteArray(28)
-            file.readFully(buf)
-            val bb = ByteBuffer.wrap(buf).order(ByteOrder.LITTLE_ENDIAN)
-
-            SparseHeader(
-                magic = bb.getInt(),
-                majorVersion = bb.short,
-                minorVersion = bb.short,
-                fileHeaderSize = bb.short,
-                chunkHeaderSize = bb.short,
-                blockSize = bb.getInt(),
-                totalBlocks = bb.getInt(),
-                totalChunks = bb.getInt(),
-                imageChecksum = bb.getInt()
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
 
     fun isSparseImage(file: File): Boolean {
         if (!file.exists()) return false
@@ -108,29 +74,24 @@ object SparseImage {
             val blocks = (dataLen + blockSize - 1) / blockSize
             val paddedLen = blocks * blockSize
 
-            val maxUint32 = 4294967295L
             val chunkHeaderSize = 12
             val fileHeaderSize = 28
 
-            val maxBlocksPerChunk = ((maxUint32 - chunkHeaderSize) / blockSize).toInt()
+            val maxBlocksPerChunk = (0xFFFFFEL).toInt() // safe max blocks
 
             if (maxBlocksPerChunk <= 0) return false
 
             val totalChunks: Int
-            val chunksData: List<Pair<Int, ByteArray>>
+            val chunksData: MutableList<Pair<Int, ByteArray>> = mutableListOf()
 
-            if (blocks <= maxBlocksPerChunk && (chunkHeaderSize + paddedLen) <= maxUint32) {
+            if (blocks <= maxBlocksPerChunk) {
                 totalChunks = 1
-                chunksData = listOf(
-                    RAW_CHUNK_TYPE to (rawData + ByteArray(paddedLen - dataLen))
-                )
+                val padding = ByteArray(paddedLen - dataLen)
+                chunksData.add(RAW_CHUNK_TYPE to (rawData + padding))
             } else {
-                val numChunks = (blocks + maxBlocksPerChunk - 1) / maxBlocksPerChunk
-                totalChunks = numChunks
-
-                val chunks = mutableListOf<Pair<Int, ByteArray>>()
-                var offset = 0
                 var remaining = blocks
+                var offset = 0
+                val chunks = mutableListOf<Pair<Int, ByteArray>>()
 
                 while (remaining > 0) {
                     val chunkBlocks = minOf(remaining, maxBlocksPerChunk)
@@ -142,15 +103,16 @@ object SparseImage {
                     offset += chunkDataLen
                     remaining -= chunkBlocks
                 }
-                chunksData = chunks
+                totalChunks = chunks.size
+                chunksData.addAll(chunks)
             }
 
             sparseFile.outputStream().use { out ->
                 val headerBuf = ByteBuffer.allocate(fileHeaderSize)
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .putInt(SPARSE_MAGIC)
-                    .putShort(1)
-                    .putShort(0)
+                    .putShort(1.toShort())
+                    .putShort(0.toShort())
                     .putShort(fileHeaderSize.toShort())
                     .putShort(chunkHeaderSize.toShort())
                     .putInt(blockSize)
@@ -164,7 +126,7 @@ object SparseImage {
                     val chunkBuf = ByteBuffer.allocate(chunkHeaderSize)
                         .order(ByteOrder.LITTLE_ENDIAN)
                         .putShort(chunkType.toShort())
-                        .putShort(0)
+                        .putShort(0.toShort())
                         .putInt(chunkData.size / blockSize)
                         .putInt(chunkTotalSize)
                     out.write(chunkBuf.array())
