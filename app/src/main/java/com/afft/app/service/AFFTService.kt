@@ -336,44 +336,75 @@ class AFFTService(private val context: Context) {
         addLog("=== Extract Filesystem ===")
         addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
 
-        return try {
-            val imgextract = BinaryManager.getBinaryPath(context, "imgextract")
-                ?: return OperationResult(false, "Extract Filesystem", "imgextract not found")
+        val contentsDir = File(getTempDir(), "contents")
+        val name = inputFile.nameWithoutExtension
+        val outDir = File(contentsDir, name)
+        outDir.mkdirs()
 
+        return try {
             updateProgress("Analyzing filesystem...")
             addLog("Identifying filesystem type...")
             val fsType = detectFilesystemType(inputFile)
+            addLog("[INFO] Detected filesystem: $fsType")
 
-            updateProgress("Extracting filesystem ($fsType)...")
-            addLog("Running: imgextract $fsType...")
+            if (fsType == "erofs") {
+                val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
+                    ?: return OperationResult(false, "Extract Filesystem", "extract.erofs not found (binary tidak ada)")
 
-            val contentsDir = File(getTempDir(), "contents")
-            val name = inputFile.nameWithoutExtension
-            val outDir = File(contentsDir, name)
-            outDir.mkdirs()
-
-            val result = if (fsType == "ext4") {
-                ShellExecutor.executeWithProgress(
-                    command = listOf(imgextract, inputFile.absolutePath, outDir.absolutePath),
+                updateProgress("Extracting EROFS filesystem...")
+                addLog("Running: extract.erofs ${inputFile.name} -> $name/")
+                val result = ShellExecutor.executeWithProgress(
+                    command = listOf(extractTool, inputFile.absolutePath, outDir.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
+
+                if (result.exitCode == 0) {
+                    addLog("[OK] EROFS filesystem extracted to $name/")
+                    OperationResult(true, "Extract Filesystem",
+                        "EROFS extracted", outDir.absolutePath)
+                } else {
+                    addLog("[FAIL] extract.erofs failed (exit ${result.exitCode})")
+                    // Log the actual error output
+                    result.errorOutput.forEach { addLog("[ERROR] $it") }
+                    OperationResult(false, "Extract Filesystem",
+                        "extract.erofs failed (exit ${result.exitCode})")
+                }
             } else {
-                ShellExecutor.executeWithProgress(
-                    command = listOf(imgextract, "--erofs", inputFile.absolutePath, outDir.absolutePath),
+                // ext4: use debugfs to dump all files
+                val debugfsBin = BinaryManager.getBinaryPath(context, "debugfs")
+                    ?: return OperationResult(false, "Extract Filesystem", "debugfs not found (binary tidak ada)")
+
+                updateProgress("Extracting ext4 filesystem...")
+                addLog("Running: debugfs -R "rdump /" ${inputFile.name} -> $name/")
+
+                // debugfs -R "rdump /path dest_dir" image.img
+                val result = ShellExecutor.executeWithProgress(
+                    command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", inputFile.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
-            }
 
-            if (result.exitCode == 0) {
-                addLog("[OK] Filesystem extracted to $outDir")
-                OperationResult(true, "Extract Filesystem",
-                    "Filesystem extracted", outDir.absolutePath)
-            } else {
-                addLog("[FAIL] imgextract failed (exit ${result.exitCode})")
-                OperationResult(false, "Extract Filesystem",
-                    "imgextract failed (exit ${result.exitCode})")
+                if (result.exitCode == 0) {
+                    addLog("[OK] Ext4 filesystem extracted to $name/")
+                    OperationResult(true, "Extract Filesystem",
+                        "Ext4 extracted", outDir.absolutePath)
+                } else {
+                    addLog("[FAIL] debugfs failed (exit ${result.exitCode})")
+                    result.errorOutput.forEach { addLog("[ERROR] $it") }
+                    // Try alternative: use debugfs normally
+                    addLog("[INFO] Mencoba metode alternatif...")
+                    val result2 = ShellExecutor.executeWithProgress(
+                        command = listOf(debugfsBin, "-R", "ls /", inputFile.absolutePath),
+                        workingDir = getTempDir(),
+                        onProgress = { addLog(it) }
+                    )
+                    if (result2.exitCode == 0) {
+                        addLog("[INFO] debugfs works, rdump might need different syntax")
+                    }
+                    OperationResult(false, "Extract Filesystem",
+                        "debugfs failed (exit ${result.exitCode})")
+                }
             }
         } catch (e: Exception) {
             addLog("[ERROR] ${e.message}")
@@ -406,9 +437,6 @@ class AFFTService(private val context: Context) {
         addLog("=== Repack Filesystem ===")
 
         return try {
-            val imgrepack = BinaryManager.getBinaryPath(context, "imgrepack")
-                ?: return OperationResult(false, "Repack Filesystem", "imgrepack not found")
-
             val contentsDir = File(getTempDir(), "contents")
             val srcDir = File(contentsDir, dirName)
             if (!srcDir.exists()) {
@@ -420,29 +448,88 @@ class AFFTService(private val context: Context) {
             repackedDir.mkdirs()
             val outputFile = File(repackedDir, "${dirName}_repack.img")
 
-            updateProgress("Repacking filesystem...")
-            addLog("Running: imgrepack...")
-            val result = ShellExecutor.executeWithProgress(
-                command = listOf(imgrepack, srcDir.absolutePath, outputFile.absolutePath),
-                workingDir = getTempDir(),
-                onProgress = { addLog(it) }
-            )
+            // Try make_ext4fs first (for ext4), fallback to mkfs.erofs (for erofs)
+            val makeExt4 = BinaryManager.getBinaryPath(context, "make_ext4fs")
+            val mkfsErofs = BinaryManager.getBinaryPath(context, "mkfs.erofs")
 
-            if (result.exitCode == 0 && outputFile.exists()) {
-                addLog("[OK] Repacked: ${outputFile.name}")
-                copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
-                OperationResult(true, "Repack Filesystem", "Repack selesai",
-                    outputFile.absolutePath)
+            updateProgress("Repacking filesystem...")
+
+            if (makeExt4 != null) {
+                addLog("Running: make_ext4fs -s ${dirName}_repack.img $dirName/")
+                // Estimate partition size (1.25x source dir size, rounded up)
+                val sizeBytes = calculateDirSize(srcDir)
+                val partitionSize = ((sizeBytes * 1.25).toLong() + 4095) / 4096 * 4096
+                val result = ShellExecutor.executeWithProgress(
+                    command = listOf(makeExt4, "-s", "-l", partitionSize.toString(),
+                        outputFile.absolutePath, srcDir.absolutePath),
+                    workingDir = getTempDir(),
+                    onProgress = { addLog(it) }
+                )
+
+                if (result.exitCode == 0 && outputFile.exists()) {
+                    addLog("[OK] Repacked ext4: ${outputFile.name} (${outputFile.length()} bytes)")
+                    copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                    OperationResult(true, "Repack Filesystem", "Repack ext4 selesai",
+                        outputFile.absolutePath)
+                } else {
+                    addLog("[FAIL] make_ext4fs failed (exit ${result.exitCode})")
+                    if (mkfsErofs != null) {
+                        addLog("[INFO] Mencoba mkfs.erofs...")
+                        val result2 = ShellExecutor.executeWithProgress(
+                            command = listOf(mkfsErofs, outputFile.absolutePath, srcDir.absolutePath),
+                            workingDir = getTempDir(),
+                            onProgress = { addLog(it) }
+                        )
+                        if (result2.exitCode == 0 && outputFile.exists()) {
+                            addLog("[OK] Repacked EROFS: ${outputFile.name}")
+                            copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                            OperationResult(true, "Repack Filesystem", "Repack EROFS selesai",
+                                outputFile.absolutePath)
+                        } else {
+                            addLog("[FAIL] mkfs.erofs also failed (exit ${result2.exitCode})")
+                            OperationResult(false, "Repack Filesystem",
+                                "make_ext4fs & mkfs.erofs both failed")
+                        }
+                    } else {
+                        OperationResult(false, "Repack Filesystem",
+                            "make_ext4fs failed, mkfs.erofs not available")
+                    }
+                }
+            } else if (mkfsErofs != null) {
+                addLog("Running: mkfs.erofs ${dirName}_repack.img $dirName/")
+                val result = ShellExecutor.executeWithProgress(
+                    command = listOf(mkfsErofs, outputFile.absolutePath, srcDir.absolutePath),
+                    workingDir = getTempDir(),
+                    onProgress = { addLog(it) }
+                )
+                if (result.exitCode == 0 && outputFile.exists()) {
+                    addLog("[OK] Repacked EROFS: ${outputFile.name}")
+                    copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                    OperationResult(true, "Repack Filesystem", "Repack EROFS selesai",
+                        outputFile.absolutePath)
+                } else {
+                    addLog("[FAIL] mkfs.erofs failed (exit ${result.exitCode})")
+                    OperationResult(false, "Repack Filesystem",
+                        "mkfs.erofs failed (exit ${result.exitCode})")
+                }
             } else {
-                addLog("[FAIL] imgrepack failed (exit ${result.exitCode})")
+                addLog("[FAIL] Tidak ada binary repack (make_ext4fs, mkfs.erofs)")
                 OperationResult(false, "Repack Filesystem",
-                    "imgrepack failed (exit ${result.exitCode})")
+                    "Tidak ada binary repack yang tersedia")
             }
         } catch (e: Exception) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Repack Filesystem", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+        }
+    }
+
+    private fun calculateDirSize(dir: File): Long {
+        return try {
+            dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        } catch (e: Exception) {
+            16777216L // 16MB default
         }
     }
 
@@ -464,29 +551,36 @@ class AFFTService(private val context: Context) {
         addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
 
         return try {
-            val unpackBoot = BinaryManager.getBinaryPath(context, "unpackbootimg")
-                ?: return OperationResult(false, "Unpack Boot", "unpackbootimg not found")
+            val magisk = BinaryManager.getBinaryPath(context, "magiskboot")
+                ?: return OperationResult(false, "Unpack Boot", "magiskboot not found (binary tidak ada)")
 
             val outDir = File(getTempDir(), "boot_out/${bootType}_out")
             outDir.mkdirs()
 
+            // Copy boot image to outDir (magiskboot unpack works in current directory)
+            val bootCopy = File(outDir, bootType)
+            inputFile.copyTo(bootCopy, overwrite = true)
+
             updateProgress("Unpacking $bootType...")
-            addLog("Running unpackbootimg...")
+            addLog("Running: magiskboot unpack ${bootType} (in ${outDir.name}/)")
             val result = ShellExecutor.executeWithProgress(
-                command = listOf(unpackBoot, "-i", inputFile.absolutePath,
-                    "-o", outDir.absolutePath),
-                workingDir = getTempDir(),
+                command = listOf(mag, "unpack", bootCopy.absolutePath),
+                workingDir = outDir,
                 onProgress = { addLog(it) }
             )
 
             if (result.exitCode == 0) {
                 addLog("[OK] $bootType unpacked to $outDir")
+                // List extracted files
+                val files = outDir.listFiles()?.filter { it.isFile }?.map { it.name } ?: emptyList()
+                files.forEach { addLog("  - $it") }
                 OperationResult(true, "Unpack $bootType", "Boot unpacked",
                     outDir.absolutePath)
             } else {
-                addLog("[FAIL] unpackbootimg failed (exit ${result.exitCode})")
+                addLog("[FAIL] magiskboot unpack failed (exit ${result.exitCode})")
+                result.errorOutput.forEach { addLog("[ERROR] $it") }
                 OperationResult(false, "Unpack $bootType",
-                    "unpackbootimg failed (exit ${result.exitCode})")
+                    "magiskboot failed (exit ${result.exitCode})")
             }
         } catch (e: Exception) {
             addLog("[ERROR] ${e.message}")
@@ -504,8 +598,8 @@ class AFFTService(private val context: Context) {
         addLog("=== Repack $bootType ===")
 
         return try {
-            val mkbootimg = BinaryManager.getBinaryPath(context, "mkbootimg")
-                ?: return OperationResult(false, "Repack Boot", "mkbootimg not found")
+            val magisk = BinaryManager.getBinaryPath(context, "magiskboot")
+                ?: return OperationResult(false, "Repack Boot", "magiskboot not found (binary tidak ada)")
 
             val outDir = File(getTempDir(), "boot_out/${bootType}_out")
             if (!outDir.exists()) {
@@ -515,45 +609,41 @@ class AFFTService(private val context: Context) {
 
             val repackedDir = File(getTempDir(), "repacked")
             repackedDir.mkdirs()
-            val outputFile = File(repackedDir, "${bootType}")
+            val outputFile = File(repackedDir, bootType)
+
+            // Copy the original boot image back if it exists
+            val bootCopy = File(outDir, bootType)
+            if (!bootCopy.exists()) {
+                addLog("[FAIL] Original boot image not found in $outDir")
+                return OperationResult(false, "Repack $bootType",
+                    "Original boot image not found, re-extract first")
+            }
 
             updateProgress("Repacking $bootType...")
-            addLog("Running mkbootimg...")
+            addLog("Running: magiskboot repack ${bootType}")
+            addLog("[INFO] Working dir: ${outDir.absolutePath}")
+            addLog("[INFO] Output: ${outputFile.absolutePath}")
 
-            // Find the kernel, ramdisk, etc.
-            val kernel = File(outDir, "kernel")
-            val ramdisk = File(outDir, "ramdisk")
-            val dtb = File(outDir, "dtb")
-
-            val cmd = mutableListOf(mkbootimg)
-            if (kernel.exists()) {
-                cmd.addAll(listOf("--kernel", kernel.absolutePath))
-            }
-            if (ramdisk.exists()) {
-                cmd.addAll(listOf("--ramdisk", ramdisk.absolutePath))
-            }
-            if (dtb.exists()) {
-                cmd.addAll(listOf("--dtb", dtb.absolutePath))
-            }
-            cmd.addAll(listOf("-o", outputFile.absolutePath))
-
-            if (debugMode) addLog("[DEBUG] mkbootimg command: ${cmd.joinToString(" ")}")
-
+            // magiskboot repack creates new-boot.img in the working directory
             val result = ShellExecutor.executeWithProgress(
-                command = cmd,
-                workingDir = getTempDir(),
+                command = listOf(magisk, "repack", bootCopy.absolutePath),
+                workingDir = outDir,
                 onProgress = { addLog(it) }
             )
 
-            if (result.exitCode == 0 && outputFile.exists()) {
-                addLog("[OK] ${bootType} repacked")
+            // Check for new-boot.img in outDir
+            val newBoot = File(outDir, "new-boot.img")
+            if (result.exitCode == 0 && newBoot.exists()) {
+                newBoot.copyTo(outputFile, overwrite = true)
+                addLog("[OK] ${bootType} repacked: ${outputFile.absolutePath}")
                 copyResultToDownload(outputFile.absolutePath, bootType)
                 OperationResult(true, "Repack $bootType",
                     "Repack selesai: $bootType", outputFile.absolutePath)
             } else {
-                addLog("[FAIL] mkbootimg failed (exit ${result.exitCode})")
+                addLog("[FAIL] magiskboot repack failed (exit ${result.exitCode})")
+                result.errorOutput.forEach { addLog("[ERROR] $it") }
                 OperationResult(false, "Repack $bootType",
-                    "mkbootimg failed (exit ${result.exitCode})")
+                    "magiskboot repack failed (exit ${result.exitCode})")
             }
         } catch (e: Exception) {
             addLog("[ERROR] ${e.message}")
@@ -687,6 +777,83 @@ class AFFTService(private val context: Context) {
         }
     }
 
+    suspend fun exportSelectedToDownloads(selectedFolders: List<String>): OperationResult {
+        return withContext(Dispatchers.IO) {
+            _isRunning.value = true
+            clearLogs()
+            addLog("=== Export Selected to Downloads ===")
+            var result: OperationResult = OperationResult(true, "Export Selected", "")
+            try {
+                updateProgress("Mengekspor folder terpilih ke Downloads/AFFT/...")
+                val downloadsDir = File("/storage/emulated/0/Download/AFFT")
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs()
+                    addLog("[INFO] Created Downloads/AFFT/")
+                }
+                val tempDir = getTempDir()
+                if (!tempDir.exists()) {
+                    return@withContext OperationResult(false, "Export Selected", "Folder temp belum ada")
+                }
+                
+                var copiedCount = 0
+                for (subdir in selectedFolders) {
+                    when (subdir) {
+                        "input" -> {
+                            val inputDir = getInputDir()
+                            if (inputDir.exists()) {
+                                val inputFiles = inputDir.listFiles()
+                                if (!inputFiles.isNullOrEmpty()) {
+                                    val dest = File(downloadsDir, "input")
+                                    if (dest.exists()) dest.deleteRecursively()
+                                    inputDir.copyRecursively(dest, overwrite = true)
+                                    copiedCount++
+                                    addLog("  Exported: input/ (${inputFiles.size} items)")
+                                } else {
+                                    addLog("  [INFO] input/ is empty, skipping")
+                                }
+                            }
+                        }
+                        else -> {
+                            val src = File(tempDir, subdir)
+                            if (src.exists() && src.isDirectory) {
+                                val files = src.listFiles()
+                                if (!files.isNullOrEmpty()) {
+                                    val dest = File(downloadsDir, subdir)
+                                    if (dest.exists()) dest.deleteRecursively()
+                                    src.copyRecursively(dest, overwrite = true)
+                                    copiedCount++
+                                    addLog("  Exported: $subdir/ (${files.size} items)")
+                                } else {
+                                    addLog("  [INFO] $subdir/ is empty, skipping")
+                                }
+                            } else {
+                                addLog("  [INFO] $subdir/ does not exist, skipping")
+                            }
+                        }
+                    }
+                }
+                
+                if (copiedCount > 0) {
+                    addLog("[OK] $copiedCount folder(s) diekspor ke Downloads/AFFT/")
+                    updateProgress("Ekspor selesai! $copiedCount folder(s) exported")
+                    result = OperationResult(true, "Export Selected",
+                        "Diekspor ke Downloads/AFFT/ ($copiedCount folders)",
+                        downloadsDir.absolutePath)
+                } else {
+                    addLog("[INFO] Tidak ada data untuk diekspor")
+                    updateProgress("Tidak ada data untuk diekspor")
+                    result = OperationResult(true, "Export Selected", "Tidak ada data untuk diekspor")
+                }
+            } catch (e: Exception) {
+                addLog("[ERROR] Export gagal: ${e.message}")
+                result = OperationResult(false, "Export Selected", e.message ?: "Unknown error")
+            } finally {
+                _isRunning.value = false
+            }
+            result
+        }
+    }
+
     suspend fun copyResultToDownload(resultPath: String, destName: String): Boolean {
         return try {
             val sourceFile = File(resultPath)
@@ -716,6 +883,17 @@ class AFFTService(private val context: Context) {
         if (!inputDir.exists()) return emptyList()
         return withContext(Dispatchers.IO) {
             inputDir.listFiles()?.sortedBy { it.name } ?: emptyList()
+        }
+    }
+
+    /**
+     * Get the most recently modified file from input/ directory.
+     * Used to auto-select files after app restart.
+     */
+    suspend fun getLatestInputFile(): File? {
+        val files = listInputFiles()
+        return withContext(Dispatchers.IO) {
+            files.maxByOrNull { it.lastModified() }
         }
     }
 }

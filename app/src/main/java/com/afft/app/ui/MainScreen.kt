@@ -1,11 +1,13 @@
 package com.afft.app.ui
 
 import android.widget.Toast
+import androidx.compose.foundation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -215,6 +217,17 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportOptions by remember { mutableStateOf(
+        mapOf(
+            "payload" to true,
+            "img" to true,
+            "repacked" to true,
+            "boot_out" to true,
+            "contents" to true,
+            "input" to false
+        )
+    ) }
 
     Column(
         modifier = Modifier
@@ -298,12 +311,7 @@ fun HomeScreen(
                 Text("Clean", fontSize = 12.sp)
             }
             OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        Toast.makeText(context, "Mengekspor ke Downloads/AFFT...", Toast.LENGTH_SHORT).show()
-                        afftService.exportAllToDownloads()
-                    }
-                },
+                onClick = { showExportDialog = true },
                 modifier = Modifier.weight(1f),
                 enabled = !isRunning
             ) {
@@ -322,6 +330,61 @@ fun HomeScreen(
                 message = progressMessage
             )
             Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Export dialog with folder selection
+        if (showExportDialog) {
+            AlertDialog(
+                onDismissRequest = { showExportDialog = false },
+                title = { Text("Export ke Downloads/AFFT") },
+                text = {
+                    Column {
+                        Text("Pilih folder yang akan diekspor:", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        exportOptions.forEach { (folder, selected) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        exportOptions = exportOptions + (folder to !selected)
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { checked ->
+                                        exportOptions = exportOptions + (folder to checked)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(folder, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        showExportDialog = false
+                        scope.launch {
+                            val selectedFolders = exportOptions.filter { it.value }.keys.toList()
+                            if (selectedFolders.isEmpty()) {
+                                Toast.makeText(context, "Pilih minimal satu folder", Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+                            Toast.makeText(context, "Mengekspor ${selectedFolders.size} folder...", Toast.LENGTH_SHORT).show()
+                            afftService.exportSelectedToDownloads(selectedFolders)
+                        }
+                    }) {
+                        Text("Export")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExportDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
         }
 
         // Terminal output
