@@ -381,7 +381,7 @@ class AFFTService(private val context: Context) {
                     updateProgress("Mengekstrak EROFS filesystem...")
                     addLog("Menjalankan: extract.erofs ${workingFile.name} -> $name/")
                     val result = ShellExecutor.executeWithProgress(
-                        command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
+                        command = listOf(extractTool, "-i", workingFile.absolutePath, "-x", "-o", outDir.absolutePath, "-f"),
                         workingDir = getTempDir(),
                         onProgress = { addLog(it) }
                     )
@@ -422,7 +422,7 @@ class AFFTService(private val context: Context) {
                 val fallbackTool = BinaryManager.getBinaryPath(context, "extract.erofs")
                 if (fallbackTool != null) {
                     val erofsResult = ShellExecutor.executeWithProgress(
-                        command = listOf(fallbackTool, workingFile.absolutePath, outDir.absolutePath),
+                        command = listOf(fallbackTool, "-i", workingFile.absolutePath, "-x", "-o", outDir.absolutePath, "-f"),
                         workingDir = getTempDir(),
                         onProgress = { addLog(it) }
                     )
@@ -491,12 +491,12 @@ class AFFTService(private val context: Context) {
                     if (lsResult.exitCode == 0) {
                         addLog("[INFO] debugfs ls berhasil! Mencoba rdump dengan path absolut...")
                         val rdumpResult = ShellExecutor.executeWithProgress(
-                            command = listOf(debugfsBin, "-R", "rdump /", workingFile.absolutePath, outDir.absolutePath),
+                            command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
                             workingDir = getTempDir(),
                             onProgress = { addLog(it) }
                         )
                         if (rdumpResult.exitCode == 0) {
-                            addLog("[OK] Ekstrak berhasil dengan argumen terpisah!")
+                            addLog("[OK] Ekstrak berhasil dengan rdump!")
                             OperationResult(true, "Extract Filesystem",
                                 "Filesystem extracted", outDir.absolutePath)
                         } else {
