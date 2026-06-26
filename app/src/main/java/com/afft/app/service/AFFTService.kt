@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 
 class AFFTService(private val context: Context) {
 
@@ -553,8 +554,7 @@ class AFFTService(private val context: Context) {
     private fun isSparseImage(file: File): Boolean {
         return try {
             val magic = ByteArray(4)
-            FileInputStream(file).use { it.read(magic) }
-            // Sparse format magic: 3A FF 26 ED (little-endian for 0xED26FF3A)
+            RandomAccessFile(file, "r").use { it.readFully(magic) }
             magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
             magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()
         } catch (e: Exception) {
@@ -564,51 +564,48 @@ class AFFTService(private val context: Context) {
 
     private fun detectFilesystemType(file: File): String {
         return try {
-            // First check if it's an Android sparse image
             val magic = ByteArray(8)
-            FileInputStream(file).use { it.read(magic) }
-            
-            // Check for Android sparse image magic
-            if (magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
-                magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()) {
-                return "sparse"
-            }
+            RandomAccessFile(file, "r").use { raf ->
+                raf.readFully(magic)
+                
+                // Check for Android sparse image magic
+                if (magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
+                    magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()) {
+                    return@use "sparse"
+                }
 
-            // Check for gzip compressed
-            if (magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte()) {
-                return "gzip"
-            }
-            
-            // EROFS superblock is at offset 0x400 with magic 0xE0F5E1E2
-            val erofsMagic = ByteArray(4)
-            FileInputStream(file).use { fis ->
-                fis.skip(0x400)
-                fis.read(erofsMagic)
-            }
-            if (erofsMagic[0] == 0xE2.toByte() && erofsMagic[1] == 0xE1.toByte() &&
-                erofsMagic[2] == 0xF5.toByte() && erofsMagic[3] == 0xE0.toByte()) {
-                return "erofs"
-            }
-            
-            val magicHex = magic.joinToString("") { "%02x".format(it) }
-            when {
-                magicHex.startsWith("e2e1f0e1") -> "ext4"
-                magicHex.startsWith("e2e1f0e0") -> "ext4"
-                else -> {
-                    // Check ext4 signature at offset 0x438
-                    try {
-                        FileInputStream(file).use { fis ->
-                            fis.skip(0x438)
+                // Check for gzip compressed
+                if (magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte()) {
+                    return@use "gzip"
+                }
+                
+                // EROFS superblock is at offset 0x400 with magic 0xE0F5E1E2
+                raf.seek(0x400)
+                val erofsMagic = ByteArray(4)
+                raf.readFully(erofsMagic)
+                if (erofsMagic[0] == 0xE2.toByte() && erofsMagic[1] == 0xE1.toByte() &&
+                    erofsMagic[2] == 0xF5.toByte() && erofsMagic[3] == 0xE0.toByte()) {
+                    return@use "erofs"
+                }
+                
+                val magicHex = magic.joinToString("") { "%02x".format(it) }
+                when {
+                    magicHex.startsWith("e2e1f0e1") -> "ext4"
+                    magicHex.startsWith("e2e1f0e0") -> "ext4"
+                    else -> {
+                        // Check ext4 signature at offset 0x438
+                        try {
+                            raf.seek(0x438)
                             val ext4Magic = ByteArray(2)
-                            fis.read(ext4Magic)
+                            raf.readFully(ext4Magic)
                             if (ext4Magic[0] == 0x53.toByte() && ext4Magic[1] == 0xEF.toByte()) {
                                 "ext4"
                             } else {
                                 "unknown"
                             }
+                        } catch (e: Exception) {
+                            "unknown"
                         }
-                    } catch (e: Exception) {
-                        "unknown"
                     }
                 }
             }
