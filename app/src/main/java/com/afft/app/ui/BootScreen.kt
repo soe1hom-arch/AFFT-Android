@@ -18,6 +18,7 @@ import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +32,7 @@ fun BootScreen(
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var selectedBootType by remember { mutableStateOf<BootImageType?>(null) }
+    var selectedInputFile by remember { mutableStateOf<File?>(null) }
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -53,9 +55,9 @@ fun BootScreen(
                 android.util.Log.w("BootScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
-            // Auto-copy picked file to input/ directory
+            // Auto-copy picked file to input/ directory dan simpan referensi lokal
             scope.launch {
-                afftService.copyPickedFileToInput(it)
+                selectedInputFile = afftService.copyPickedFileToInput(it)
             }
         }
     }
@@ -125,7 +127,13 @@ fun BootScreen(
         ) {
             Button(
                 onClick = {
-                    selectedUri?.let { uri ->
+                    selectedInputFile?.let { file ->
+                        selectedBootType?.let { type ->
+                            scope.launch {
+                                afftService.unpackBoot(file, type.fileName)
+                            }
+                        }
+                    } ?: selectedUri?.let { uri ->
                         selectedBootType?.let { type ->
                             scope.launch {
                                 afftService.unpackBoot(uri, type.fileName)

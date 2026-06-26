@@ -19,6 +19,7 @@ import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,6 +32,7 @@ fun FilesystemScreen(
     val scope = rememberCoroutineScope()
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
+    var selectedInputFile by remember { mutableStateOf<File?>(null) }
     var availableDirs by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedDir by remember { mutableStateOf<String?>(null) }
     var expanded by remember { mutableStateOf(false) }
@@ -51,9 +53,9 @@ fun FilesystemScreen(
                 android.util.Log.w("FilesystemScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
-            // Auto-copy picked file to input/ directory
+            // Auto-copy picked file to input/ directory dan simpan referensi lokal
             scope.launch {
-                afftService.copyPickedFileToInput(it)
+                selectedInputFile = afftService.copyPickedFileToInput(it)
             }
         }
     }
@@ -96,7 +98,14 @@ fun FilesystemScreen(
 
         Button(
             onClick = {
-                selectedUri?.let { uri ->
+                selectedInputFile?.let { file ->
+                    scope.launch {
+                        val result = afftService.extractFilesystem(file)
+                        if (result.ok) {
+                            availableDirs = afftService.listContentsDirs()
+                        }
+                    }
+                } ?: selectedUri?.let { uri ->
                     scope.launch {
                         val result = afftService.extractFilesystem(uri)
                         if (result.ok) {

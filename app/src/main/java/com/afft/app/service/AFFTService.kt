@@ -143,24 +143,28 @@ class AFFTService(private val context: Context) {
 
     suspend fun extractPayload(inputUri: Uri): OperationResult {
         ensureDirs()
+        val payloadFile = File(getTempDir(), "payload_src.bin")
+        if (!copyUriToFile(inputUri, payloadFile)) {
+            return OperationResult(false, "Extract Payload", "Failed to copy input file")
+        }
+        return extractPayload(payloadFile)
+    }
+
+    suspend fun extractPayload(inputFile: File): OperationResult {
+        ensureDirs()
         _isRunning.value = true
-        _progressMessage.value = "Menyalin file payload..."
         clearLogs()
         addLog("=== Extract payload.bin ===")
+        addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
 
         return try {
             val payloadDumper = BinaryManager.getBinaryPath(context, "payload-dumper-go")
                 ?: return OperationResult(false, "Extract Payload", "payload-dumper-go not found")
 
-            val payloadFile = File(getTempDir(), "payload_src.bin")
-            if (!copyUriToFile(inputUri, payloadFile)) {
-                return OperationResult(false, "Extract Payload", "Failed to copy input file")
-            }
-
             updateProgress("Extracting payload, mohon tunggu...")
             addLog("Running payload-dumper-go...")
             val result = ShellExecutor.executeWithProgress(
-                command = listOf(payloadDumper, payloadFile.absolutePath, "-o",
+                command = listOf(payloadDumper, inputFile.absolutePath, "-o",
                     File(getTempDir(), "payload").absolutePath),
                 workingDir = getTempDir(),
                 onProgress = { addLog(it) }
@@ -185,44 +189,46 @@ class AFFTService(private val context: Context) {
 
     suspend fun unpackSuper(inputUri: Uri): OperationResult {
         ensureDirs()
+        val superFile = File(getTempDir(), "super_src.img")
+        if (!copyUriToFile(inputUri, superFile)) {
+            return OperationResult(false, "Unpack Super", "Failed to copy input file")
+        }
+        return unpackSuper(superFile)
+    }
+
+    suspend fun unpackSuper(inputFile: File): OperationResult {
+        ensureDirs()
         _isRunning.value = true
         _progressMessage.value = "Unpacking super.img..."
         clearLogs()
         addLog("=== Unpack super.img ===")
+        addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
 
         return try {
             val lpunpack = BinaryManager.getBinaryPath(context, "lpunpack")
                 ?: return OperationResult(false, "Unpack Super", "lpunpack not found")
 
-            val superFile = File(getTempDir(), "super_src.img")
-            if (!copyUriToFile(inputUri, superFile)) {
-                return OperationResult(false, "Unpack Super", "Failed to copy input file")
-            }
-
             updateProgress("Unpacking super.img...")
             val imgDir = File(getTempDir(), "img")
             addLog("Running lpunpack...")
             val result = ShellExecutor.executeWithProgress(
-                command = listOf(lpunpack, "--slot=0", superFile.absolutePath, imgDir.absolutePath),
+                command = listOf(lpunpack, "--slot=0", inputFile.absolutePath, imgDir.absolutePath),
                 workingDir = getTempDir(),
                 onProgress = { addLog(it) }
             )
 
             if (result.exitCode == 0) {
                 addLog("[OK] Super unpacked successfully")
-                // Sparse headers handled by lpunpack
                 OperationResult(true, "Unpack Super", "Super unpacked to temp/img/", imgDir.absolutePath)
             } else {
-                // Try without --slot
                 addLog("[INFO] Mencoba tanpa --slot...")
                 val result2 = ShellExecutor.executeWithProgress(
-                    command = listOf(lpunpack, superFile.absolutePath, imgDir.absolutePath),
+                    command = listOf(lpunpack, inputFile.absolutePath, imgDir.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
                 if (result2.exitCode == 0) {
                     addLog("[OK] Super unpacked successfully")
-                    // Sparse headers handled by lpunpack
                     OperationResult(true, "Unpack Super", "Super unpacked to temp/img/", imgDir.absolutePath)
                 } else {
                     addLog("[FAIL] lpunpack failed (exit ${result2.exitCode})")
@@ -315,42 +321,46 @@ class AFFTService(private val context: Context) {
 
     suspend fun extractFilesystem(inputUri: Uri): OperationResult {
         ensureDirs()
+        val fsFile = File(getTempDir(), "filesystem_src.img")
+        if (!copyUriToFile(inputUri, fsFile)) {
+            return OperationResult(false, "Extract Filesystem", "Failed to copy input file")
+        }
+        return extractFilesystem(fsFile)
+    }
+
+    suspend fun extractFilesystem(inputFile: File): OperationResult {
+        ensureDirs()
         _isRunning.value = true
         _progressMessage.value = "Extracting filesystem..."
         clearLogs()
         addLog("=== Extract Filesystem ===")
+        addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
 
         return try {
             val imgextract = BinaryManager.getBinaryPath(context, "imgextract")
                 ?: return OperationResult(false, "Extract Filesystem", "imgextract not found")
 
-            val fsFile = File(getTempDir(), "filesystem_src.img")
-            if (!copyUriToFile(inputUri, fsFile)) {
-                return OperationResult(false, "Extract Filesystem", "Failed to copy input file")
-            }
-
             updateProgress("Analyzing filesystem...")
             addLog("Identifying filesystem type...")
-            val fsType = detectFilesystemType(fsFile)
+            val fsType = detectFilesystemType(inputFile)
 
             updateProgress("Extracting filesystem ($fsType)...")
             addLog("Running: imgextract $fsType...")
 
             val contentsDir = File(getTempDir(), "contents")
-            val name = fsFile.nameWithoutExtension
+            val name = inputFile.nameWithoutExtension
             val outDir = File(contentsDir, name)
             outDir.mkdirs()
 
             val result = if (fsType == "ext4") {
                 ShellExecutor.executeWithProgress(
-                    command = listOf(imgextract, fsFile.absolutePath, outDir.absolutePath),
+                    command = listOf(imgextract, inputFile.absolutePath, outDir.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
             } else {
-                // erofs: imgextract may need different args
                 ShellExecutor.executeWithProgress(
-                    command = listOf(imgextract, "--erofs", fsFile.absolutePath, outDir.absolutePath),
+                    command = listOf(imgextract, "--erofs", inputFile.absolutePath, outDir.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
@@ -438,19 +448,24 @@ class AFFTService(private val context: Context) {
 
     suspend fun unpackBoot(inputUri: Uri, bootType: String): OperationResult {
         ensureDirs()
+        val bootFile = File(getTempDir(), "boot/${bootType}")
+        if (!copyUriToFile(inputUri, bootFile)) {
+            return OperationResult(false, "Unpack Boot", "Failed to copy input file")
+        }
+        return unpackBoot(bootFile, bootType)
+    }
+
+    suspend fun unpackBoot(inputFile: File, bootType: String): OperationResult {
+        ensureDirs()
         _isRunning.value = true
         _progressMessage.value = "Unpacking $bootType..."
         clearLogs()
         addLog("=== Unpack $bootType ===")
+        addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
 
         return try {
             val unpackBoot = BinaryManager.getBinaryPath(context, "unpackbootimg")
                 ?: return OperationResult(false, "Unpack Boot", "unpackbootimg not found")
-
-            val bootFile = File(getTempDir(), "boot/${bootType}")
-            if (!copyUriToFile(inputUri, bootFile)) {
-                return OperationResult(false, "Unpack Boot", "Failed to copy input file")
-            }
 
             val outDir = File(getTempDir(), "boot_out/${bootType}_out")
             outDir.mkdirs()
@@ -458,7 +473,7 @@ class AFFTService(private val context: Context) {
             updateProgress("Unpacking $bootType...")
             addLog("Running unpackbootimg...")
             val result = ShellExecutor.executeWithProgress(
-                command = listOf(unpackBoot, "-i", bootFile.absolutePath,
+                command = listOf(unpackBoot, "-i", inputFile.absolutePath,
                     "-o", outDir.absolutePath),
                 workingDir = getTempDir(),
                 onProgress = { addLog(it) }

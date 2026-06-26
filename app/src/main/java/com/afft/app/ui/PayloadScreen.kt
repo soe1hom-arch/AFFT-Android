@@ -18,6 +18,7 @@ import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun PayloadScreen(
@@ -29,6 +30,7 @@ fun PayloadScreen(
     val scope = rememberCoroutineScope()
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
+    var selectedInputFile by remember { mutableStateOf<File?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -53,9 +55,9 @@ fun PayloadScreen(
                 selectedFileName = it.lastPathSegment ?: "Unknown file"
                 android.util.Log.w("PayloadScreen", "File query error: ${e.message}")
             }
-            // Auto-copy picked file to input/ directory
+            // Auto-copy picked file to input/ directory dan simpan referensi lokal
             scope.launch {
-                afftService.copyPickedFileToInput(it)
+                selectedInputFile = afftService.copyPickedFileToInput(it)
             }
         } ?: run {
             errorMessage = "Tidak ada file dipilih"
@@ -100,7 +102,15 @@ fun PayloadScreen(
 
         Button(
             onClick = {
-                selectedUri?.let { uri ->
+                selectedInputFile?.let { file ->
+                    scope.launch {
+                        errorMessage = null
+                        val result = afftService.extractPayload(file)
+                        if (!result.ok) {
+                            errorMessage = result.message
+                        }
+                    }
+                } ?: selectedUri?.let { uri ->
                     scope.launch {
                         errorMessage = null
                         val result = afftService.extractPayload(uri)

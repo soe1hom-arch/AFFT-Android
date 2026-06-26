@@ -18,6 +18,7 @@ import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun SuperScreen(
@@ -30,6 +31,7 @@ fun SuperScreen(
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var repackResult by remember { mutableStateOf<String?>(null) }
+    var selectedInputFile by remember { mutableStateOf<File?>(null) }
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -47,9 +49,9 @@ fun SuperScreen(
                 android.util.Log.w("SuperScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
-            // Auto-copy picked file to input/ directory
+            // Auto-copy picked file to input/ directory dan simpan referensi lokal
             scope.launch {
-                afftService.copyPickedFileToInput(it)
+                selectedInputFile = afftService.copyPickedFileToInput(it)
             }
         }
     }
@@ -88,7 +90,14 @@ fun SuperScreen(
         ) {
             Button(
                 onClick = {
-                    selectedUri?.let { uri ->
+                    selectedInputFile?.let { file ->
+                        scope.launch {
+                            val result = afftService.unpackSuper(file)
+                            if (result.ok) {
+                                repackResult = "Unpack selesai. Partisi di temp/img/"
+                            }
+                        }
+                    } ?: selectedUri?.let { uri ->
                         scope.launch {
                             val result = afftService.unpackSuper(uri)
                             if (result.ok) {
