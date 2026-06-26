@@ -210,7 +210,7 @@ class AFFTService(private val context: Context) {
 
             if (result.exitCode == 0) {
                 addLog("[OK] Super unpacked successfully")
-                SparseImage.removeSparseHeaders(imgDir)
+                // Sparse headers handled by lpunpack
                 OperationResult(true, "Unpack Super", "Super unpacked to temp/img/", imgDir.absolutePath)
             } else {
                 // Try without --slot
@@ -222,7 +222,7 @@ class AFFTService(private val context: Context) {
                 )
                 if (result2.exitCode == 0) {
                     addLog("[OK] Super unpacked successfully")
-                    SparseImage.removeSparseHeaders(imgDir)
+                    // Sparse headers handled by lpunpack
                     OperationResult(true, "Unpack Super", "Super unpacked to temp/img/", imgDir.absolutePath)
                 } else {
                     addLog("[FAIL] lpunpack failed (exit ${result2.exitCode})")
