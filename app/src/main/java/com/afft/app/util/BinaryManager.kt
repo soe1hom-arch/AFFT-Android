@@ -37,6 +37,25 @@ object BinaryManager {
         return dir
     }
 
+    /**
+     * Mendapatkan path binary dari nativeLibraryDir (jniLibs).
+     * Ini adalah metode yang benar untuk Android 14+ karena SELinux
+     * memblokir eksekusi binary dari filesDir biasa.
+     * Binary harus ditempatkan di app/src/main/jniLibs/<arch>/lib<name>.so
+     */
+    fun getNativeLibBinaryPath(context: Context, name: String): String? {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val libFile = File(nativeLibDir, "lib${name}.so")
+
+        val exists = libFile.exists()
+        val canExec = libFile.canExecute()
+        val canRead = libFile.canRead()
+
+        Log.d(TAG, "getNativeLibBinaryPath($name): exists=$exists execute=$canExec read=$canRead path=${libFile.absolutePath}")
+
+        return if (exists && canExec) libFile.absolutePath else null
+    }
+
     fun deployBinaries(context: Context): Result<List<String>> {
         val binDir = getBinDirectory(context)
         val deployed = mutableListOf<String>()
@@ -50,6 +69,15 @@ object BinaryManager {
                 }
 
                 val targetFile = File(binDir, assetName)
+
+                // Skip if binary already exists in nativeLibraryDir (jniLibs)
+                val nativeLibPath = getNativeLibBinaryPath(context, assetName)
+                if (nativeLibPath != null) {
+                    Log.d(TAG, "$assetName already available via nativeLibraryDir: $nativeLibPath")
+                    deployed.add(assetName)
+                    continue
+                }
+
                 if (targetFile.exists() && targetFile.canExecute()) {
                     deployed.add(assetName)
                     continue
@@ -105,6 +133,11 @@ object BinaryManager {
     }
 
     fun getBinaryPath(context: Context, name: String): String? {
+        // Priority 1: Try nativeLibraryDir (jniLibs) - works on Android 14+ with SELinux
+        val nativeLibPath = getNativeLibBinaryPath(context, name)
+        if (nativeLibPath != null) return nativeLibPath
+
+        // Priority 2: Fall back to extracted binary in filesDir
         val binDir = getBinDirectory(context)
         val binary = File(binDir, name)
 
@@ -112,16 +145,24 @@ object BinaryManager {
         val canExec = binary.canExecute()
         val canRead = binary.canRead()
 
-        Log.d(TAG, "getBinaryPath($name): exists=$exists execute=$canExec read=$canRead path=${binary.absolutePath}")
+        Log.d(TAG, "getBinaryPath($name) [fallback]: exists=$exists execute=$canExec read=$canRead path=${binary.absolutePath}")
 
         return if (exists && canExec) binary.absolutePath else null
     }
 
     fun verifyBinaries(context: Context): Map<String, Boolean> {
-        val binDir = getBinDirectory(context)
         val results = mutableMapOf<String, Boolean>()
 
         for (name in REQUIRED_BINARIES) {
+            // Check nativeLibraryDir first
+            val nativePath = getNativeLibBinaryPath(context, name)
+            if (nativePath != null) {
+                results[name] = true
+                continue
+            }
+
+            // Fall back to filesDir
+            val binDir = getBinDirectory(context)
             val binary = File(binDir, name)
             results[name] = binary.exists() && binary.canExecute()
         }
