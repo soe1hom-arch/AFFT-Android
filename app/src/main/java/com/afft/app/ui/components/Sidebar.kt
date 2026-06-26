@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.afft.app.model.OperationLog
 
 @Composable
-Sidebar(
+fun Sidebar(
     selectedSection: String,
     onSectionSelect: (String) -> Unit,
     operationLogs: List<OperationLog>,
@@ -70,7 +70,7 @@ Sidebar(
 }
 
 @Composable
-SidebarMenuItem(
+fun SidebarMenuItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
@@ -104,7 +104,7 @@ SidebarMenuItem(
 }
 
 @Composable
-ProcessMonitorSection(operationLogs: List<OperationLog>) {
+fun ProcessMonitorSection(operationLogs: List<OperationLog>) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text(
             "Running Operations",
@@ -132,7 +132,7 @@ ProcessMonitorSection(operationLogs: List<OperationLog>) {
 }
 
 @Composable
-ProcessLogCard(log: OperationLog) {
+fun ProcessLogCard(log: OperationLog) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -166,7 +166,7 @@ ProcessLogCard(log: OperationLog) {
 }
 
 @Composable
-LogsSection(operationLogs: List<OperationLog>) {
+fun LogsSection(operationLogs: List<OperationLog>) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text(
             "Operation Logs",
@@ -198,7 +198,7 @@ LogsSection(operationLogs: List<OperationLog>) {
 }
 
 @Composable
-LogEntry(log: OperationLog) {
+fun LogEntry(log: OperationLog) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(8.dp),
         verticalAlignment = Alignment.Top
@@ -243,5 +243,4 @@ fun formatTimestamp(timestamp: Long): String {
         String.format("%02d:%02d", minutes, secs)
     }
 }
-KT_SIDEBAR
-echo "Sidebar.kt created"
+

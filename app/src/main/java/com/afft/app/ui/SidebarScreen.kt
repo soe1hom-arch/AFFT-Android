@@ -1,5 +1,4 @@
 package com.afft.app.ui
-import android.util.Log
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts

@@ -28,7 +28,9 @@ import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.TerminalView
 import com.afft.app.ui.theme.*
 import com.afft.app.util.BinaryManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,7 +55,9 @@ fun MainScreen(afftService: AFFTService) {
     }
 
     LaunchedEffect(Unit) {
-        val result = BinaryManager.deployBinaries(context)
+        val result = withContext(Dispatchers.IO) {
+            BinaryManager.deployBinaries(context)
+        }
         binariesReady = result.isSuccess
         binaryStatus = BinaryManager.verifyBinaries(context)
         if (!binariesReady) {
