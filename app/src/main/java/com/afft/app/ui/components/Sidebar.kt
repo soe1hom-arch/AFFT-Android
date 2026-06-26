@@ -8,6 +8,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.afft.app.model.OperationLog
 
@@ -44,7 +46,7 @@ fun Sidebar(
                 Triple("logs", Icons.Default.TextSnippet, "Logs"),
             )
 
-            for (section, icon, label) in menuItems {
+            for ((section, icon, label) in menuItems) {
                 SidebarMenuItem(
                     icon = icon,
                     label = label,

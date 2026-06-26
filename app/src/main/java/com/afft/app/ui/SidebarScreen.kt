@@ -18,7 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.afft.app.model.OperationLog
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.Sidebar
@@ -137,7 +139,7 @@ Unpack boot images:
                         }
                     }
                     "logs" -> {
-                        Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             Text("Operation Logs", fontFamily = FontFamily.Monospace)
                             Card(modifier = Modifier.fillMaxWidth().weight(1f)) {
                                 Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
