@@ -33,13 +33,18 @@ object SparseImage {
 
         return try {
             RandomAccessFile(file, "r").use { raf ->
-                val magic4 = ByteArray(4)
-                raf.readFully(magic4)
-
-                if (magic4[0] == 0xE2.toByte() && magic4[1] == 0xE1.toByte() &&
-                    magic4[2] == 0xF5.toByte() && magic4[3] == 0x00.toByte()) {
+                // EROFS superblock is at offset 0x400 with magic 0xE0F5E1E2
+                raf.seek(0x400)
+                val erofsMagic = ByteArray(4)
+                raf.readFully(erofsMagic)
+                if (erofsMagic[0] == 0xE2.toByte() && erofsMagic[1] == 0xE1.toByte() &&
+                    erofsMagic[2] == 0xF5.toByte() && erofsMagic[3] == 0xE0.toByte()) {
                     return "erofs"
                 }
+
+                raf.seek(0)
+                val magic4 = ByteArray(4)
+                raf.readFully(magic4)
 
                 if ((magic4[0] == 0x10.toByte() && magic4[1] == 0x20.toByte() &&
                      magic4[2] == 0xF5.toByte() && magic4[3] == 0xF2.toByte()) ||

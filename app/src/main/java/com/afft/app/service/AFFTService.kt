@@ -398,15 +398,80 @@ class AFFTService(private val context: Context) {
                     OperationResult(false, "Extract Filesystem",
                         "extract.erofs failed (exit ${result.exitCode})")
                 }
+            } else if (fsType == "gzip") {
+                addLog("[INFO] File terkompresi gzip, mencoba dekompresi...")
+                // Try to decompress first then re-detect
+                val decompressed = File(getTempDir(), "${name}_decompressed.img")
+                val gunzipResult = ShellExecutor.executeWithProgress(
+                    command = listOf("gzip", "-d", "-k", "-c", workingFile.absolutePath),
+                    workingDir = getTempDir(),
+                    onProgress = { addLog(it) }
+                )
+                if (gunzipResult.exitCode == 0) {
+                    // Need to redirect stdin properly - use shell redirection
+                    val gunzipRes = ShellExecutor.executeWithProgress(
+                        command = listOf("sh", "-c", "gzip -d -k -c '${workingFile.absolutePath}' > '${decompressed.absolutePath}'"),
+                        workingDir = getTempDir(),
+                        onProgress = { addLog(it) }
+                    )
+                    if (gunzipRes.exitCode == 0 && decompressed.exists()) {
+                        addLog("[OK] Dekompresi berhasil, mendeteksi ulang...")
+                        // Recursively detect and extract
+                        return extractFilesystem(decompressed)
+                    }
+                }
+                addLog("[FAIL] Gagal dekompresi gzip, lanjut ke metode lain")
+                // Fall through to unknown handling below
+                val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
+                if (extractTool != null) {
+                    updateProgress("Mencoba EROFS (fallback)...")
+                    addLog("Menjalankan: extract.erofs ${workingFile.name} -> $name/")
+                    val erofsResult = ShellExecutor.executeWithProgress(
+                        command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
+                        workingDir = getTempDir(),
+                        onProgress = { addLog(it) }
+                    )
+                    if (erofsResult.exitCode == 0) {
+                        val fileCount = outDir.walkTopDown().count() - 1
+                        addLog("[OK] EROFS filesystem terekstrak ke $name/ ($fileCount item)")
+                        updateProgress("Ekstrak EROFS selesai! $fileCount item")
+                        return OperationResult(true, "Extract Filesystem",
+                            "EROFS extracted ($fileCount items)", outDir.absolutePath)
+                    }
+                }
+                // If all fallbacks fail, return error
+                OperationResult(false, "Extract Filesystem",
+                    "Gagal mengekstrak: format tidak dikenal (gzip)")
             } else {
-                // ext4 or other: use debugfs to dump all files
+                // ext4 or unknown: try extract.erofs first as fallback, then debugfs
+                if (fsType == "unknown") {
+                    addLog("[INFO] Tipe filesystem tidak terdeteksi, mencoba EROFS...")
+                    val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
+                    if (extractTool != null) {
+                        val erofsResult = ShellExecutor.executeWithProgress(
+                            command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
+                            workingDir = getTempDir(),
+                            onProgress = { addLog(it) }
+                        )
+                        if (erofsResult.exitCode == 0) {
+                            val fileCount = outDir.walkTopDown().count() - 1
+                            addLog("[OK] EROFS filesystem terekstrak ke $name/ ($fileCount item)")
+                            updateProgress("Ekstrak EROFS selesai! $fileCount item")
+                            return OperationResult(true, "Extract Filesystem",
+                                "EROFS extracted ($fileCount items)", outDir.absolutePath)
+                        }
+                        addLog("[INFO] extract.erofs gagal, mencoba debugfs...")
+                    } else {
+                        addLog("[INFO] extract.erofs tidak tersedia, langsung ke debugfs...")
+                    }
+                }
+
                 val debugfsBin = BinaryManager.getBinaryPath(context, "debugfs")
                     ?: return OperationResult(false, "Extract Filesystem", "debugfs not found (binary tidak ada)")
 
                 updateProgress("Mengekstrak ext4 filesystem...")
                 addLog("Menjalankan: debugfs -R 'rdump /' ${workingFile.name} -> $name/")
 
-                // debugfs -R "rdump / dest_dir" image.img
                 val result = ShellExecutor.executeWithProgress(
                     command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
                     workingDir = getTempDir(),
@@ -423,7 +488,6 @@ class AFFTService(private val context: Context) {
                     addLog("[FAIL] debugfs rdump gagal (exit ${result.exitCode})")
                     result.errorOutput.forEach { addLog("[ERROR] $it") }
                     
-                    // Alternative: try to mount and copy (debugfs on raw image might work better)
                     if (workingFile != inputFile) {
                         addLog("[INFO] Mencoba debugfs dengan file raw...")
                         val resultRaw = ShellExecutor.executeWithProgress(
@@ -452,7 +516,6 @@ class AFFTService(private val context: Context) {
                         )
                         if (result2.exitCode == 0) {
                             addLog("[INFO] debugfs ls berhasil! Mencoba rdump dengan path absolut...")
-                            // Try rdump with separate arguments
                             val result3 = ShellExecutor.executeWithProgress(
                                 command = listOf(debugfsBin, "-R", "rdump /", workingFile.absolutePath, outDir.absolutePath),
                                 workingDir = getTempDir(),
@@ -501,24 +564,36 @@ class AFFTService(private val context: Context) {
 
     private fun detectFilesystemType(file: File): String {
         return try {
-            // Try to detect using simg2img header check first
-            // Android sparse images have magic 0xED26FF3A at offset 0
+            // First check if it's an Android sparse image
             val magic = ByteArray(8)
             FileInputStream(file).use { it.read(magic) }
             
             // Check for Android sparse image magic
             if (magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
                 magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()) {
-                // This is a sparse image - underlying type is unknown yet
-                // After simg2img conversion, detect again
                 return "sparse"
+            }
+
+            // Check for gzip compressed
+            if (magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte()) {
+                return "gzip"
+            }
+            
+            // EROFS superblock is at offset 0x400 with magic 0xE0F5E1E2
+            val erofsMagic = ByteArray(4)
+            FileInputStream(file).use { fis ->
+                fis.skip(0x400)
+                fis.read(erofsMagic)
+            }
+            if (erofsMagic[0] == 0xE2.toByte() && erofsMagic[1] == 0xE1.toByte() &&
+                erofsMagic[2] == 0xF5.toByte() && erofsMagic[3] == 0xE0.toByte()) {
+                return "erofs"
             }
             
             val magicHex = magic.joinToString("") { "%02x".format(it) }
             when {
                 magicHex.startsWith("e2e1f0e1") -> "ext4"
                 magicHex.startsWith("e2e1f0e0") -> "ext4"
-                magicHex.startsWith("00beef11") -> "erofs"
                 else -> {
                     // Check ext4 signature at offset 0x438
                     try {
@@ -529,16 +604,16 @@ class AFFTService(private val context: Context) {
                             if (ext4Magic[0] == 0x53.toByte() && ext4Magic[1] == 0xEF.toByte()) {
                                 "ext4"
                             } else {
-                                "ext4" // default to ext4
+                                "unknown"
                             }
                         }
                     } catch (e: Exception) {
-                        "ext4"
+                        "unknown"
                     }
                 }
             }
         } catch (e: Exception) {
-            "ext4"
+            "unknown"
         }
     }
 
