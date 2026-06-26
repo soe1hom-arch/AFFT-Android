@@ -80,8 +80,8 @@ object ShellExecutor {
      * Execute a native binary with automatic fallback to linker64 if direct
      * execution fails due to SELinux/noexec restrictions on Android 14+.
      *
-     * The linker64 fallback explicitly runs the binary through the system linker:
-     *   /system/bin/linker64 /path/to/binary [args...]
+     * The linker64 fallback runs the binary through the system linker:
+     *   /system/bin/linker64 /path/to/binary args...
      * This works because linker64 has the proper SELinux domain (exec_type)
      * to load ELF binaries even from app data directories.
      */
