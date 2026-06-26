@@ -32,6 +32,7 @@ fun FileManagerScreen(
 
     val workDir = afftService.getWorkDir()
     val tempDir = afftService.getTempDir()
+    val inputDir = afftService.getInputDir()
     val downloadDir = File("/storage/emulated/0/Download/AFFT")
 
     fun refreshFiles(dir: File) {
@@ -111,6 +112,14 @@ fun FileManagerScreen(
                 },
                 label = { Text("Work", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) }
+            )
+            AssistChip(
+                onClick = {
+                    pathHistory = emptyList()
+                    refreshFiles(inputDir)
+                },
+                label = { Text("Input", fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Default.DriveFileMove, null, modifier = Modifier.size(16.dp)) }
             )
             if (downloadDir.exists()) {
                 AssistChip(

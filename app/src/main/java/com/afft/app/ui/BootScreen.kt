@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.afft.app.model.BootImageType
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
+import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
 
@@ -51,6 +52,10 @@ fun BootScreen(
             } catch (e: Exception) {
                 android.util.Log.w("BootScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
+            }
+            // Auto-copy picked file to input/ directory
+            scope.launch {
+                afftService.copyPickedFileToInput(it)
             }
         }
     }
@@ -155,7 +160,7 @@ fun BootScreen(
 
         if (isRunning) {
             Spacer(modifier = Modifier.height(16.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            ProcessingOverlay(isRunning = true, message = "Processing boot image...")
         }
 
         Spacer(modifier = Modifier.height(16.dp))

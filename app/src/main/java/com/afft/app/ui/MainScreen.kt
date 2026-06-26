@@ -1,14 +1,6 @@
 package com.afft.app.ui
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,9 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.afft.app.model.OperationResult
 import com.afft.app.service.AFFTService
-import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import com.afft.app.ui.FileManagerScreen
@@ -33,7 +23,6 @@ import com.afft.app.util.BinaryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,14 +37,6 @@ fun MainScreen(afftService: AFFTService) {
     var binariesReady by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var binaryStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            // File picked - handled per screen
-        }
-    }
 
     LaunchedEffect(Unit) {
         val result = withContext(Dispatchers.IO) {
@@ -319,14 +300,8 @@ fun HomeScreen(
             OutlinedButton(
                 onClick = {
                     scope.launch {
-                        val workDir = afftService.getTempDir()
-                        val zipFile = File(context.cacheDir, "afft_source.zip")
-                        try {
-                            // copy source to Download
-                            Toast.makeText(context, "Menyimpan kode ke Download...", Toast.LENGTH_SHORT).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
+                        Toast.makeText(context, "Mengekspor ke Downloads/AFFT...", Toast.LENGTH_SHORT).show()
+                        afftService.exportAllToDownloads()
                     }
                 },
                 modifier = Modifier.weight(1f),
@@ -334,7 +309,7 @@ fun HomeScreen(
             ) {
                 Icon(Icons.Default.SaveAlt, null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Export", fontSize = 12.sp)
+                Text("Export All", fontSize = 12.sp)
             }
         }
 

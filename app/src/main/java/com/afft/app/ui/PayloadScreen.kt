@@ -47,12 +47,15 @@ fun PayloadScreen(
                         }
                     }
                 } ?: run {
-                    // Fallback: use last path segment
                     selectedFileName = it.lastPathSegment ?: "Unknown file"
                 }
             } catch (e: Exception) {
                 selectedFileName = it.lastPathSegment ?: "Unknown file"
                 android.util.Log.w("PayloadScreen", "File query error: ${e.message}")
+            }
+            // Auto-copy picked file to input/ directory
+            scope.launch {
+                afftService.copyPickedFileToInput(it)
             }
         } ?: run {
             errorMessage = "Tidak ada file dipilih"

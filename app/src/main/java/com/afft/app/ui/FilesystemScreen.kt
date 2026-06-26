@@ -51,6 +51,10 @@ fun FilesystemScreen(
                 android.util.Log.w("FilesystemScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
+            // Auto-copy picked file to input/ directory
+            scope.launch {
+                afftService.copyPickedFileToInput(it)
+            }
         }
     }
 

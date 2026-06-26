@@ -47,6 +47,10 @@ fun SuperScreen(
                 android.util.Log.w("SuperScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
+            // Auto-copy picked file to input/ directory
+            scope.launch {
+                afftService.copyPickedFileToInput(it)
+            }
         }
     }
 
@@ -106,7 +110,6 @@ fun SuperScreen(
                     scope.launch {
                         val result = afftService.repackSuper()
                         repackResult = if (result.ok) {
-                            afftService.copyResultToDownload(result.outputPath, "super_repack.img")
                             "Repack selesai: temp/repacked/super_repack.img"
                         } else {
                             "Repack gagal"
