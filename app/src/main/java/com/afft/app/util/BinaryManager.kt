@@ -84,7 +84,10 @@ object BinaryManager {
             }
         }
 
-        return if (canExec) libFile.absolutePath else null
+        // On Android 14+, direct exec from app data may be blocked by SELinux,
+        // but binary can still be loaded via /system/bin/linker64.
+        // Always return path if file exists, even if not directly executable.
+        return libFile.absolutePath
     }
 
     fun deployBinaries(context: Context): Result<List<String>> {

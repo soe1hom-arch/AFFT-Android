@@ -12,7 +12,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 
@@ -375,60 +374,55 @@ class AFFTService(private val context: Context) {
             val fsType = detectFilesystemType(workingFile)
             addLog("[INFO] Terdeteksi filesystem: $fsType")
 
+            // === EROFS: fast path ===
             if (fsType == "erofs") {
                 val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
-                    ?: return OperationResult(false, "Extract Filesystem", "extract.erofs not found (binary tidak ada)")
-
-                updateProgress("Mengekstrak EROFS filesystem...")
-                addLog("Menjalankan: extract.erofs ${workingFile.name} -> $name/")
-                val result = ShellExecutor.executeWithProgress(
-                    command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
-                    workingDir = getTempDir(),
-                    onProgress = { addLog(it) }
-                )
-
-                if (result.exitCode == 0) {
-                    val fileCount = outDir.walkTopDown().count() - 1
-                    addLog("[OK] EROFS filesystem terekstrak ke $name/ ($fileCount item)")
-                    updateProgress("Ekstrak EROFS selesai! $fileCount item")
-                    OperationResult(true, "Extract Filesystem",
-                        "EROFS extracted ($fileCount items)", outDir.absolutePath)
-                } else {
-                    addLog("[FAIL] extract.erofs gagal (exit ${result.exitCode})")
-                    result.errorOutput.forEach { addLog("[ERROR] $it") }
-                    OperationResult(false, "Extract Filesystem",
-                        "extract.erofs failed (exit ${result.exitCode})")
-                }
-            } else if (fsType == "gzip") {
-                addLog("[INFO] File terkompresi gzip, mencoba dekompresi...")
-                // Try to decompress first then re-detect
-                val decompressed = File(getTempDir(), "${name}_decompressed.img")
-                val gunzipResult = ShellExecutor.executeWithProgress(
-                    command = listOf("gzip", "-d", "-k", "-c", workingFile.absolutePath),
-                    workingDir = getTempDir(),
-                    onProgress = { addLog(it) }
-                )
-                if (gunzipResult.exitCode == 0) {
-                    // Need to redirect stdin properly - use shell redirection
-                    val gunzipRes = ShellExecutor.executeWithProgress(
-                        command = listOf("sh", "-c", "gzip -d -k -c '${workingFile.absolutePath}' > '${decompressed.absolutePath}'"),
+                if (extractTool != null) {
+                    updateProgress("Mengekstrak EROFS filesystem...")
+                    addLog("Menjalankan: extract.erofs ${workingFile.name} -> $name/")
+                    val result = ShellExecutor.executeWithProgress(
+                        command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
                         workingDir = getTempDir(),
                         onProgress = { addLog(it) }
                     )
-                    if (gunzipRes.exitCode == 0 && decompressed.exists()) {
-                        addLog("[OK] Dekompresi berhasil, mendeteksi ulang...")
-                        // Recursively detect and extract
-                        return extractFilesystem(decompressed)
+                    if (result.exitCode == 0) {
+                        val fileCount = outDir.walkTopDown().count() - 1
+                        addLog("[OK] EROFS filesystem terekstrak ke $name/ ($fileCount item)")
+                        updateProgress("Ekstrak EROFS selesai! $fileCount item")
+                        return OperationResult(true, "Extract Filesystem",
+                            "EROFS extracted ($fileCount items)", outDir.absolutePath)
                     }
+                    addLog("[FAIL] extract.erofs gagal (exit ${result.exitCode})")
+                    result.errorOutput.forEach { addLog("[ERROR] $it") }
+                } else {
+                    addLog("[INFO] extract.erofs tidak tersedia")
                 }
-                addLog("[FAIL] Gagal dekompresi gzip, lanjut ke metode lain")
-                // Fall through to unknown handling below
-                val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
-                if (extractTool != null) {
-                    updateProgress("Mencoba EROFS (fallback)...")
-                    addLog("Menjalankan: extract.erofs ${workingFile.name} -> $name/")
+                addLog("[INFO] Mencoba debugfs sebagai fallback...")
+            }
+
+            // === GZIP: decompress and retry ===
+            if (fsType == "gzip") {
+                addLog("[INFO] File terkompresi gzip, mencoba dekompresi...")
+                val decompressed = File(getTempDir(), "${name}_decompressed.img")
+                val gunzipRes = ShellExecutor.executeWithProgress(
+                    command = listOf("sh", "-c", "gzip -d -k -c '${workingFile.absolutePath}' > '${decompressed.absolutePath}'"),
+                    workingDir = getTempDir(),
+                    onProgress = { addLog(it) }
+                )
+                if (gunzipRes.exitCode == 0 && decompressed.exists()) {
+                    addLog("[OK] Dekompresi berhasil, mendeteksi ulang...")
+                    return extractFilesystem(decompressed)
+                }
+                addLog("[FAIL] Gagal dekompresi gzip, lanjut ke debugfs...")
+            }
+
+            // === UNKNOWN: try extract.erofs as fallback ===
+            if (fsType == "unknown") {
+                addLog("[INFO] Tipe filesystem tidak terdeteksi, mencoba EROFS...")
+                val fallbackTool = BinaryManager.getBinaryPath(context, "extract.erofs")
+                if (fallbackTool != null) {
                     val erofsResult = ShellExecutor.executeWithProgress(
-                        command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
+                        command = listOf(fallbackTool, workingFile.absolutePath, outDir.absolutePath),
                         workingDir = getTempDir(),
                         onProgress = { addLog(it) }
                     )
@@ -439,103 +433,81 @@ class AFFTService(private val context: Context) {
                         return OperationResult(true, "Extract Filesystem",
                             "EROFS extracted ($fileCount items)", outDir.absolutePath)
                     }
-                }
-                // If all fallbacks fail, return error
-                OperationResult(false, "Extract Filesystem",
-                    "Gagal mengekstrak: format tidak dikenal (gzip)")
-            } else {
-                // ext4 or unknown: try extract.erofs first as fallback, then debugfs
-                if (fsType == "unknown") {
-                    addLog("[INFO] Tipe filesystem tidak terdeteksi, mencoba EROFS...")
-                    val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
-                    if (extractTool != null) {
-                        val erofsResult = ShellExecutor.executeWithProgress(
-                            command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
-                            workingDir = getTempDir(),
-                            onProgress = { addLog(it) }
-                        )
-                        if (erofsResult.exitCode == 0) {
-                            val fileCount = outDir.walkTopDown().count() - 1
-                            addLog("[OK] EROFS filesystem terekstrak ke $name/ ($fileCount item)")
-                            updateProgress("Ekstrak EROFS selesai! $fileCount item")
-                            return OperationResult(true, "Extract Filesystem",
-                                "EROFS extracted ($fileCount items)", outDir.absolutePath)
-                        }
-                        addLog("[INFO] extract.erofs gagal, mencoba debugfs...")
-                    } else {
-                        addLog("[INFO] extract.erofs tidak tersedia, langsung ke debugfs...")
-                    }
-                }
-
-                val debugfsBin = BinaryManager.getBinaryPath(context, "debugfs")
-                    ?: return OperationResult(false, "Extract Filesystem", "debugfs not found (binary tidak ada)")
-
-                updateProgress("Mengekstrak ext4 filesystem...")
-                addLog("Menjalankan: debugfs -R 'rdump /' ${workingFile.name} -> $name/")
-
-                val result = ShellExecutor.executeWithProgress(
-                    command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
-                    workingDir = getTempDir(),
-                    onProgress = { addLog(it) }
-                )
-
-                if (result.exitCode == 0) {
-                    val fileCount = if (outDir.exists()) outDir.walkTopDown().count() - 1 else 0
-                    addLog("[OK] Ext4 filesystem terekstrak ke $name/ ($fileCount item)")
-                    updateProgress("Ekstrak ext4 selesai! $fileCount item")
-                    OperationResult(true, "Extract Filesystem",
-                        "Ext4 extracted ($fileCount items)", outDir.absolutePath)
+                    addLog("[INFO] extract.erofs gagal, mencoba debugfs...")
                 } else {
-                    addLog("[FAIL] debugfs rdump gagal (exit ${result.exitCode})")
-                    result.errorOutput.forEach { addLog("[ERROR] $it") }
-                    
-                    if (workingFile != inputFile) {
-                        addLog("[INFO] Mencoba debugfs dengan file raw...")
-                        val resultRaw = ShellExecutor.executeWithProgress(
-                            command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
+                    addLog("[INFO] extract.erofs tidak tersedia, langsung ke debugfs...")
+                }
+            }
+
+            // === DEBUGFS: universal fallback (ext4/unknown/erofs-fallback) ===
+            val debugfsBin = BinaryManager.getBinaryPath(context, "debugfs")
+                ?: return OperationResult(false, "Extract Filesystem", "debugfs not found (binary tidak ada)")
+
+            updateProgress("Mengekstrak filesystem dengan debugfs...")
+            addLog("Menjalankan: debugfs -R 'rdump /' ${workingFile.name} -> $name/")
+
+            val debugfsResult = ShellExecutor.executeWithProgress(
+                command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
+                workingDir = getTempDir(),
+                onProgress = { addLog(it) }
+            )
+
+            if (debugfsResult.exitCode == 0) {
+                val fileCount = if (outDir.exists()) outDir.walkTopDown().count() - 1 else 0
+                addLog("[OK] Filesystem terekstrak ke $name/ ($fileCount item)")
+                updateProgress("Ekstrak selesai! $fileCount item")
+                OperationResult(true, "Extract Filesystem",
+                    "Filesystem extracted ($fileCount items)", outDir.absolutePath)
+            } else {
+                addLog("[FAIL] debugfs rdump gagal (exit ${debugfsResult.exitCode})")
+                debugfsResult.errorOutput.forEach { addLog("[ERROR] $it") }
+                
+                if (workingFile != inputFile) {
+                    addLog("[INFO] Mencoba debugfs dengan file raw...")
+                    val rawResult = ShellExecutor.executeWithProgress(
+                        command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
+                        workingDir = getTempDir(),
+                        onProgress = { addLog(it) }
+                    )
+                    if (rawResult.exitCode == 0) {
+                        val fileCount = if (outDir.exists()) outDir.walkTopDown().count() - 1 else 0
+                        addLog("[OK] Filesystem terekstrak dari file raw! ($fileCount item)")
+                        updateProgress("Ekstrak selesai! $fileCount item")
+                        OperationResult(true, "Extract Filesystem",
+                            "Filesystem extracted via raw ($fileCount items)", outDir.absolutePath)
+                    } else {
+                        addLog("[FAIL] debugfs pada raw juga gagal")
+                        rawResult.errorOutput.forEach { addLog("[ERROR] $it") }
+                        OperationResult(false, "Extract Filesystem",
+                            "debugfs failed (exit ${debugfsResult.exitCode})")
+                    }
+                } else {
+                    addLog("[INFO] debugfs rdump gagal. Mencoba ls untuk verifikasi...")
+                    val lsResult = ShellExecutor.executeWithProgress(
+                        command = listOf(debugfsBin, "-R", "ls -l /", workingFile.absolutePath),
+                        workingDir = getTempDir(),
+                        onProgress = { addLog(it) }
+                    )
+                    if (lsResult.exitCode == 0) {
+                        addLog("[INFO] debugfs ls berhasil! Mencoba rdump dengan path absolut...")
+                        val rdumpResult = ShellExecutor.executeWithProgress(
+                            command = listOf(debugfsBin, "-R", "rdump /", workingFile.absolutePath, outDir.absolutePath),
                             workingDir = getTempDir(),
                             onProgress = { addLog(it) }
                         )
-                        if (resultRaw.exitCode == 0) {
-                            val fileCount = if (outDir.exists()) outDir.walkTopDown().count() - 1 else 0
-                            addLog("[OK] Ext4 terekstrak dari file raw! ($fileCount item)")
-                            updateProgress("Ekstrak selesai! $fileCount item")
+                        if (rdumpResult.exitCode == 0) {
+                            addLog("[OK] Ekstrak berhasil dengan argumen terpisah!")
                             OperationResult(true, "Extract Filesystem",
-                                "Ext4 extracted via raw ($fileCount items)", outDir.absolutePath)
+                                "Filesystem extracted", outDir.absolutePath)
                         } else {
-                            addLog("[FAIL] debugfs rdump pada raw juga gagal")
-                            resultRaw.errorOutput.forEach { addLog("[ERROR] $it") }
+                            addLog("[FAIL] Semua metode debugfs gagal")
                             OperationResult(false, "Extract Filesystem",
-                                "debugfs failed (exit ${result.exitCode})")
+                                "debugfs failed after all attempts")
                         }
                     } else {
-                        addLog("[INFO] debugfs rdump gagal. Mencoba ls untuk verifikasi...")
-                        val result2 = ShellExecutor.executeWithProgress(
-                            command = listOf(debugfsBin, "-R", "ls -l /", workingFile.absolutePath),
-                            workingDir = getTempDir(),
-                            onProgress = { addLog(it) }
-                        )
-                        if (result2.exitCode == 0) {
-                            addLog("[INFO] debugfs ls berhasil! Mencoba rdump dengan path absolut...")
-                            val result3 = ShellExecutor.executeWithProgress(
-                                command = listOf(debugfsBin, "-R", "rdump /", workingFile.absolutePath, outDir.absolutePath),
-                                workingDir = getTempDir(),
-                                onProgress = { addLog(it) }
-                            )
-                            if (result3.exitCode == 0) {
-                                addLog("[OK] Ekstrak berhasil dengan argumen terpisah!")
-                                OperationResult(true, "Extract Filesystem",
-                                    "Ext4 extracted", outDir.absolutePath)
-                            } else {
-                                addLog("[FAIL] Semua metode debugfs gagal")
-                                OperationResult(false, "Extract Filesystem",
-                                    "debugfs failed after all attempts")
-                            }
-                        } else {
-                            addLog("[FAIL] debugfs tidak dapat membaca image")
-                            OperationResult(false, "Extract Filesystem",
-                                "debugfs cannot read this image")
-                        }
+                        addLog("[FAIL] debugfs tidak dapat membaca image")
+                        OperationResult(false, "Extract Filesystem",
+                            "debugfs cannot read this image")
                     }
                 }
             }
@@ -563,54 +535,23 @@ class AFFTService(private val context: Context) {
     }
 
     private fun detectFilesystemType(file: File): String {
-        return try {
-            val magic = ByteArray(8)
-            RandomAccessFile(file, "r").use { raf ->
-                raf.readFully(magic)
-                
-                // Check for Android sparse image magic
-                if (magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
-                    magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()) {
-                    return@use "sparse"
-                }
-
-                // Check for gzip compressed
-                if (magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte()) {
-                    return@use "gzip"
-                }
-                
-                // EROFS superblock is at offset 0x400 with magic 0xE0F5E1E2
-                raf.seek(0x400)
-                val erofsMagic = ByteArray(4)
-                raf.readFully(erofsMagic)
-                if (erofsMagic[0] == 0xE2.toByte() && erofsMagic[1] == 0xE1.toByte() &&
-                    erofsMagic[2] == 0xF5.toByte() && erofsMagic[3] == 0xE0.toByte()) {
-                    return@use "erofs"
-                }
-                
-                val magicHex = magic.joinToString("") { "%02x".format(it) }
-                when {
-                    magicHex.startsWith("e2e1f0e1") -> "ext4"
-                    magicHex.startsWith("e2e1f0e0") -> "ext4"
-                    else -> {
-                        // Check ext4 signature at offset 0x438
-                        try {
-                            raf.seek(0x438)
-                            val ext4Magic = ByteArray(2)
-                            raf.readFully(ext4Magic)
-                            if (ext4Magic[0] == 0x53.toByte() && ext4Magic[1] == 0xEF.toByte()) {
-                                "ext4"
-                            } else {
-                                "unknown"
-                            }
-                        } catch (e: Exception) {
-                            "unknown"
-                        }
-                    }
-                }
+        // Delegate to SparseImage for core erofs/ext4/f2fs detection
+        val detected = SparseImage.detectFilesystemType(file)
+        return when (detected) {
+            "unknown" -> {
+                if (isGzipFile(file)) "gzip" else detected
             }
+            else -> detected
+        }
+    }
+
+    private fun isGzipFile(file: File): Boolean {
+        return try {
+            val magic = ByteArray(2)
+            RandomAccessFile(file, "r").use { it.readFully(magic) }
+            magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte()
         } catch (e: Exception) {
-            "unknown"
+            false
         }
     }
 
