@@ -376,7 +376,7 @@ class AFFTService(private val context: Context) {
                     ?: return OperationResult(false, "Extract Filesystem", "debugfs not found (binary tidak ada)")
 
                 updateProgress("Extracting ext4 filesystem...")
-                addLog("Running: debugfs -R "rdump /" ${inputFile.name} -> $name/")
+                addLog("Running: debugfs -R 'rdump /' ${inputFile.name} -> $name/")
 
                 // debugfs -R "rdump /path dest_dir" image.img
                 val result = ShellExecutor.executeWithProgress(
@@ -564,7 +564,7 @@ class AFFTService(private val context: Context) {
             updateProgress("Unpacking $bootType...")
             addLog("Running: magiskboot unpack ${bootType} (in ${outDir.name}/)")
             val result = ShellExecutor.executeWithProgress(
-                command = listOf(mag, "unpack", bootCopy.absolutePath),
+                command = listOf(magisk, "unpack", bootCopy.absolutePath),
                 workingDir = outDir,
                 onProgress = { addLog(it) }
             )
