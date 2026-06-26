@@ -655,7 +655,7 @@ class AFFTService(private val context: Context) {
             _isRunning.value = true
             clearLogs()
             addLog("=== Export All to Downloads ===")
-            val result: OperationResult
+            var result: OperationResult = OperationResult(true, "Export All", "")
             try {
                 updateProgress("Mengekspor hasil kerja ke Downloads/AFFT/...")
                 val downloadsDir = File("/storage/emulated/0/Download/AFFT")
