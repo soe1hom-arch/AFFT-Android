@@ -1,6 +1,7 @@
 package com.afft.app.util
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -15,12 +16,25 @@ data class CommandResult(
 
 object ShellExecutor {
 
+    private const val TAG = "ShellExecutor"
+
     suspend fun execute(
         command: List<String>,
         workingDir: File? = null,
         envVars: Map<String, String>? = null,
         onOutput: ((String) -> Unit)? = null
     ): CommandResult = withContext(Dispatchers.IO) {
+        Log.d(TAG, "Command: ${command.joinToString(" ")}")
+
+        // Log executable permission info if first argument is a file path
+        if (command.isNotEmpty()) {
+            val executable = File(command[0])
+            Log.d(TAG, "executable=${executable.absolutePath}" +
+                    " exists=${executable.exists()}" +
+                    " execute=${executable.canExecute()}" +
+                    " read=${executable.canRead()}")
+        }
+
         val processBuilder = ProcessBuilder(command)
             .redirectErrorStream(false)
 
@@ -32,7 +46,18 @@ object ShellExecutor {
             processBuilder.environment().putAll(envVars)
         }
 
-        val process = processBuilder.start()
+        val process: Process
+        try {
+            process = processBuilder.start()
+        } catch (e: Exception) {
+            Log.e(TAG, "ProcessBuilder.start() failed for command: ${command.joinToString(" ")}", e)
+            return@withContext CommandResult(
+                exitCode = -1,
+                output = emptyList(),
+                errorOutput = listOf("ProcessBuilder.start() failed: ${e.message}")
+            )
+        }
+
         val output = mutableListOf<String>()
         val errorOutput = mutableListOf<String>()
 

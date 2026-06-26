@@ -1,11 +1,13 @@
 package com.afft.app.util
 
 import android.content.Context
+import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 
 object BinaryManager {
 
+    private const val TAG = "BinaryManager"
     private const val BIN_DIR = "bin"
     private const val APP_BIN_DIR = "afft_bin"
 
@@ -59,11 +61,36 @@ object BinaryManager {
                             input.copyTo(output)
                         }
                     }
-                    targetFile.setExecutable(true, false)
+
+                    // Set executable permission via Java API
+                    val setExecOk = targetFile.setExecutable(true, false)
+                    if (!setExecOk) {
+                        Log.w(TAG, "setExecutable() returned false for $assetName, trying chmod fallback")
+                    }
                     targetFile.setReadable(true, false)
+
+                    // Fallback: use chmod via shell if setExecutable didn't work
+                    try {
+                        val chmodProcess = Runtime.getRuntime().exec(
+                            arrayOf("/system/bin/chmod", "755", targetFile.absolutePath)
+                        )
+                        chmodProcess.waitFor()
+                        if (chmodProcess.exitValue() != 0) {
+                            Log.w(TAG, "chmod 755 $assetName exit code: ${chmodProcess.exitValue()}")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "chmod fallback failed for $assetName: ${e.message}")
+                    }
+
+                    // Verify permissions
+                    Log.d(TAG, "$assetName: exists=${targetFile.exists()}" +
+                            " execute=${targetFile.canExecute()}" +
+                            " read=${targetFile.canRead()}" +
+                            " path=${targetFile.absolutePath}")
+
                     deployed.add(assetName)
                 } catch (e: Exception) {
-                    android.util.Log.w("BinaryManager", "Failed to deploy $assetName: ${e.message}")
+                    Log.w(TAG, "Failed to deploy $assetName: ${e.message}")
                 }
             }
 
@@ -80,11 +107,14 @@ object BinaryManager {
     fun getBinaryPath(context: Context, name: String): String? {
         val binDir = getBinDirectory(context)
         val binary = File(binDir, name)
-        if (binary.exists() && binary.canExecute()) {
-            return binary.absolutePath
-        }
 
-        return null
+        val exists = binary.exists()
+        val canExec = binary.canExecute()
+        val canRead = binary.canRead()
+
+        Log.d(TAG, "getBinaryPath($name): exists=$exists execute=$canExec read=$canRead path=${binary.absolutePath}")
+
+        return if (exists && canExec) binary.absolutePath else null
     }
 
     fun verifyBinaries(context: Context): Map<String, Boolean> {
