@@ -151,7 +151,7 @@ fun BootScreen(
                         }
                     }
                 },
-                enabled = selectedUri != null && selectedBootType != null && !isRunning,
+                enabled = (selectedUri != null || selectedInputFile != null) && selectedBootType != null && !isRunning,
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(Icons.Default.Unarchive, null)

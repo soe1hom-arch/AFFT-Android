@@ -124,7 +124,7 @@ fun FilesystemScreen(
                     }
                 }
             },
-            enabled = selectedUri != null && !isRunning,
+            enabled = (selectedUri != null || selectedInputFile != null) && !isRunning,
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.Unarchive, null)

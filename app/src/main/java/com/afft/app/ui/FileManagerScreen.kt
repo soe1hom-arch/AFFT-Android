@@ -43,7 +43,7 @@ fun FileManagerScreen(
     }
 
     LaunchedEffect(Unit) {
-        refreshFiles(tempDir)
+        refreshFiles(inputDir)
     }
 
     Column(
@@ -100,7 +100,7 @@ fun FileManagerScreen(
             AssistChip(
                 onClick = {
                     pathHistory = emptyList()
-                    refreshFiles(tempDir)
+                    refreshFiles(inputDir)
                 },
                 label = { Text("Temp", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) }

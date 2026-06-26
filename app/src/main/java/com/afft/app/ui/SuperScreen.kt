@@ -116,7 +116,7 @@ fun SuperScreen(
                         }
                     }
                 },
-                enabled = selectedUri != null && !isRunning,
+                enabled = (selectedUri != null || selectedInputFile != null) && !isRunning,
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(Icons.Default.Unarchive, null)

@@ -335,6 +335,7 @@ class AFFTService(private val context: Context) {
         clearLogs()
         addLog("=== Extract Filesystem ===")
         addLog("[INFO] Menggunakan file: ${inputFile.absolutePath}")
+        addLog("[INFO] File size: ${inputFile.length()} bytes")
 
         val contentsDir = File(getTempDir(), "contents")
         val name = inputFile.nameWithoutExtension
@@ -342,87 +343,199 @@ class AFFTService(private val context: Context) {
         outDir.mkdirs()
 
         return try {
-            updateProgress("Analyzing filesystem...")
-            addLog("Identifying filesystem type...")
-            val fsType = detectFilesystemType(inputFile)
-            addLog("[INFO] Detected filesystem: $fsType")
+            // Check if image is sparse Android format, convert with simg2img if needed
+            updateProgress("Memeriksa format gambar...")
+            val simg2imgBin = BinaryManager.getBinaryPath(context, "simg2img")
+            var workingFile = inputFile
+
+            if (simg2imgBin != null && isSparseImage(inputFile)) {
+                updateProgress("Mengkonversi sparse ke raw image...")
+                addLog("[INFO] Deteksi gambar sparse Android, mengkonversi ke raw...")
+                val rawFile = File(getTempDir(), "${name}_raw.img")
+                val convertResult = ShellExecutor.executeWithProgress(
+                    command = listOf(simg2imgBin, inputFile.absolutePath, rawFile.absolutePath),
+                    workingDir = getTempDir(),
+                    onProgress = { addLog(it) }
+                )
+                if (convertResult.exitCode == 0 && rawFile.exists()) {
+                    addLog("[OK] Konversi sparse->raw berhasil: ${rawFile.length()} bytes")
+                    workingFile = rawFile
+                } else {
+                    addLog("[WARN] Konversi sparse gagal, menggunakan file asli")
+                    convertResult.errorOutput.forEach { addLog("[ERROR] $it") }
+                }
+            } else if (simg2imgBin == null) {
+                addLog("[INFO] simg2img tidak tersedia, gunakan file langsung")
+            }
+
+            // Detect filesystem type on the (possibly converted) raw file
+            updateProgress("Menganalisis filesystem...")
+            addLog("Mengidentifikasi tipe filesystem...")
+            val fsType = detectFilesystemType(workingFile)
+            addLog("[INFO] Terdeteksi filesystem: $fsType")
 
             if (fsType == "erofs") {
                 val extractTool = BinaryManager.getBinaryPath(context, "extract.erofs")
                     ?: return OperationResult(false, "Extract Filesystem", "extract.erofs not found (binary tidak ada)")
 
-                updateProgress("Extracting EROFS filesystem...")
-                addLog("Running: extract.erofs ${inputFile.name} -> $name/")
+                updateProgress("Mengekstrak EROFS filesystem...")
+                addLog("Menjalankan: extract.erofs ${workingFile.name} -> $name/")
                 val result = ShellExecutor.executeWithProgress(
-                    command = listOf(extractTool, inputFile.absolutePath, outDir.absolutePath),
+                    command = listOf(extractTool, workingFile.absolutePath, outDir.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
 
                 if (result.exitCode == 0) {
-                    addLog("[OK] EROFS filesystem extracted to $name/")
+                    val fileCount = outDir.walkTopDown().count() - 1
+                    addLog("[OK] EROFS filesystem terekstrak ke $name/ ($fileCount item)")
+                    updateProgress("Ekstrak EROFS selesai! $fileCount item")
                     OperationResult(true, "Extract Filesystem",
-                        "EROFS extracted", outDir.absolutePath)
+                        "EROFS extracted ($fileCount items)", outDir.absolutePath)
                 } else {
-                    addLog("[FAIL] extract.erofs failed (exit ${result.exitCode})")
-                    // Log the actual error output
+                    addLog("[FAIL] extract.erofs gagal (exit ${result.exitCode})")
                     result.errorOutput.forEach { addLog("[ERROR] $it") }
                     OperationResult(false, "Extract Filesystem",
                         "extract.erofs failed (exit ${result.exitCode})")
                 }
             } else {
-                // ext4: use debugfs to dump all files
+                // ext4 or other: use debugfs to dump all files
                 val debugfsBin = BinaryManager.getBinaryPath(context, "debugfs")
                     ?: return OperationResult(false, "Extract Filesystem", "debugfs not found (binary tidak ada)")
 
-                updateProgress("Extracting ext4 filesystem...")
-                addLog("Running: debugfs -R 'rdump /' ${inputFile.name} -> $name/")
+                updateProgress("Mengekstrak ext4 filesystem...")
+                addLog("Menjalankan: debugfs -R 'rdump /' ${workingFile.name} -> $name/")
 
-                // debugfs -R "rdump /path dest_dir" image.img
+                // debugfs -R "rdump / dest_dir" image.img
                 val result = ShellExecutor.executeWithProgress(
-                    command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", inputFile.absolutePath),
+                    command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
 
                 if (result.exitCode == 0) {
-                    addLog("[OK] Ext4 filesystem extracted to $name/")
+                    val fileCount = if (outDir.exists()) outDir.walkTopDown().count() - 1 else 0
+                    addLog("[OK] Ext4 filesystem terekstrak ke $name/ ($fileCount item)")
+                    updateProgress("Ekstrak ext4 selesai! $fileCount item")
                     OperationResult(true, "Extract Filesystem",
-                        "Ext4 extracted", outDir.absolutePath)
+                        "Ext4 extracted ($fileCount items)", outDir.absolutePath)
                 } else {
-                    addLog("[FAIL] debugfs failed (exit ${result.exitCode})")
+                    addLog("[FAIL] debugfs rdump gagal (exit ${result.exitCode})")
                     result.errorOutput.forEach { addLog("[ERROR] $it") }
-                    // Try alternative: use debugfs normally
-                    addLog("[INFO] Mencoba metode alternatif...")
-                    val result2 = ShellExecutor.executeWithProgress(
-                        command = listOf(debugfsBin, "-R", "ls /", inputFile.absolutePath),
-                        workingDir = getTempDir(),
-                        onProgress = { addLog(it) }
-                    )
-                    if (result2.exitCode == 0) {
-                        addLog("[INFO] debugfs works, rdump might need different syntax")
+                    
+                    // Alternative: try to mount and copy (debugfs on raw image might work better)
+                    if (workingFile != inputFile) {
+                        addLog("[INFO] Mencoba debugfs dengan file raw...")
+                        val resultRaw = ShellExecutor.executeWithProgress(
+                            command = listOf(debugfsBin, "-R", "rdump / ${outDir.absolutePath}", workingFile.absolutePath),
+                            workingDir = getTempDir(),
+                            onProgress = { addLog(it) }
+                        )
+                        if (resultRaw.exitCode == 0) {
+                            val fileCount = if (outDir.exists()) outDir.walkTopDown().count() - 1 else 0
+                            addLog("[OK] Ext4 terekstrak dari file raw! ($fileCount item)")
+                            updateProgress("Ekstrak selesai! $fileCount item")
+                            OperationResult(true, "Extract Filesystem",
+                                "Ext4 extracted via raw ($fileCount items)", outDir.absolutePath)
+                        } else {
+                            addLog("[FAIL] debugfs rdump pada raw juga gagal")
+                            resultRaw.errorOutput.forEach { addLog("[ERROR] $it") }
+                            OperationResult(false, "Extract Filesystem",
+                                "debugfs failed (exit ${result.exitCode})")
+                        }
+                    } else {
+                        addLog("[INFO] debugfs rdump gagal. Mencoba ls untuk verifikasi...")
+                        val result2 = ShellExecutor.executeWithProgress(
+                            command = listOf(debugfsBin, "-R", "ls -l /", workingFile.absolutePath),
+                            workingDir = getTempDir(),
+                            onProgress = { addLog(it) }
+                        )
+                        if (result2.exitCode == 0) {
+                            addLog("[INFO] debugfs ls berhasil! Mencoba rdump dengan path absolut...")
+                            // Try rdump with separate arguments
+                            val result3 = ShellExecutor.executeWithProgress(
+                                command = listOf(debugfsBin, "-R", "rdump /", workingFile.absolutePath, outDir.absolutePath),
+                                workingDir = getTempDir(),
+                                onProgress = { addLog(it) }
+                            )
+                            if (result3.exitCode == 0) {
+                                addLog("[OK] Ekstrak berhasil dengan argumen terpisah!")
+                                OperationResult(true, "Extract Filesystem",
+                                    "Ext4 extracted", outDir.absolutePath)
+                            } else {
+                                addLog("[FAIL] Semua metode debugfs gagal")
+                                OperationResult(false, "Extract Filesystem",
+                                    "debugfs failed after all attempts")
+                            }
+                        } else {
+                            addLog("[FAIL] debugfs tidak dapat membaca image")
+                            OperationResult(false, "Extract Filesystem",
+                                "debugfs cannot read this image")
+                        }
                     }
-                    OperationResult(false, "Extract Filesystem",
-                        "debugfs failed (exit ${result.exitCode})")
                 }
             }
         } catch (e: Exception) {
             addLog("[ERROR] ${e.message}")
+            e.printStackTrace()
             OperationResult(false, "Extract Filesystem", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
         }
     }
 
+    /**
+     * Check if file is an Android sparse image (magic: 0xED26FF3A).
+     */
+    private fun isSparseImage(file: File): Boolean {
+        return try {
+            val magic = ByteArray(4)
+            FileInputStream(file).use { it.read(magic) }
+            // Sparse format magic: 3A FF 26 ED (little-endian for 0xED26FF3A)
+            magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
+            magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun detectFilesystemType(file: File): String {
         return try {
-            val bytes = FileInputStream(file).use { it.readNBytes(8) }
-            val magic = bytes.joinToString("") { "%02x".format(it) }
+            // Try to detect using simg2img header check first
+            // Android sparse images have magic 0xED26FF3A at offset 0
+            val magic = ByteArray(8)
+            FileInputStream(file).use { it.read(magic) }
+            
+            // Check for Android sparse image magic
+            if (magic[0] == 0x3A.toByte() && magic[1] == 0xFF.toByte() &&
+                magic[2] == 0x26.toByte() && magic[3] == 0xED.toByte()) {
+                // This is a sparse image - underlying type is unknown yet
+                // After simg2img conversion, detect again
+                return "sparse"
+            }
+            
+            val magicHex = magic.joinToString("") { "%02x".format(it) }
             when {
-                magic.startsWith("e2e1f0e1") -> "ext4"
-                magic.startsWith("e2e1f0e0") -> "ext4"
-                magic.startsWith("00beef11") -> "erofs"
-                else -> "ext4" // default
+                magicHex.startsWith("e2e1f0e1") -> "ext4"
+                magicHex.startsWith("e2e1f0e0") -> "ext4"
+                magicHex.startsWith("00beef11") -> "erofs"
+                else -> {
+                    // Check ext4 signature at offset 0x438
+                    try {
+                        FileInputStream(file).use { fis ->
+                            fis.skip(0x438)
+                            val ext4Magic = ByteArray(2)
+                            fis.read(ext4Magic)
+                            if (ext4Magic[0] == 0x53.toByte() && ext4Magic[1] == 0xEF.toByte()) {
+                                "ext4"
+                            } else {
+                                "ext4" // default to ext4
+                            }
+                        }
+                    } catch (e: Exception) {
+                        "ext4"
+                    }
+                }
             }
         } catch (e: Exception) {
             "ext4"
