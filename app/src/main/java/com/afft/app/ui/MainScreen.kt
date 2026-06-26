@@ -25,7 +25,9 @@ import androidx.compose.ui.unit.sp
 import com.afft.app.model.OperationResult
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
+import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
+import com.afft.app.ui.FileManagerScreen
 import com.afft.app.ui.theme.*
 import com.afft.app.util.BinaryManager
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +44,7 @@ fun MainScreen(afftService: AFFTService) {
     var debugMode by remember { mutableStateOf(false) }
     val logs by afftService.logs.collectAsState()
     val isRunning by afftService.isRunning.collectAsState()
+    val progressMessage by afftService.progressMessage.collectAsState()
     var binariesReady by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var binaryStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
@@ -131,6 +134,12 @@ fun MainScreen(afftService: AFFTService) {
                     icon = { Icon(Icons.Default.DeveloperBoard, "Boot") },
                     label = { Text("Boot") }
                 )
+                NavigationBarItem(
+                    selected = selectedSection == "filemgr",
+                    onClick = { selectedSection = "filemgr" },
+                    icon = { Icon(Icons.Default.FolderOpen, "Files") },
+                    label = { Text("Files") }
+                )
             }
         }
     ) { padding ->
@@ -140,7 +149,8 @@ fun MainScreen(afftService: AFFTService) {
                     afftService = afftService,
                     binariesReady = binariesReady,
                     logs = logs,
-                    isRunning = isRunning
+                    isRunning = isRunning,
+                    progressMessage = progressMessage
                 )
                 "payload" -> PayloadScreen(
                     afftService = afftService,
@@ -158,6 +168,11 @@ fun MainScreen(afftService: AFFTService) {
                     isRunning = isRunning
                 )
                 "boot" -> BootScreen(
+                    afftService = afftService,
+                    logs = logs,
+                    isRunning = isRunning
+                )
+                "filemgr" -> FileManagerScreen(
                     afftService = afftService,
                     logs = logs,
                     isRunning = isRunning
@@ -214,7 +229,8 @@ fun HomeScreen(
     afftService: AFFTService,
     binariesReady: Boolean,
     logs: List<String>,
-    isRunning: Boolean
+    isRunning: Boolean,
+    progressMessage: String = ""
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -323,6 +339,15 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Progress indicator
+        if (isRunning && progressMessage.isNotEmpty()) {
+            ProcessingOverlay(
+                isRunning = true,
+                message = progressMessage
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // Terminal output
         Text(

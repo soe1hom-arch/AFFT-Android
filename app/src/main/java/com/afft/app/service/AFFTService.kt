@@ -21,6 +21,9 @@ class AFFTService(private val context: Context) {
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
+    private val _progressMessage = MutableStateFlow("")
+    val progressMessage: StateFlow<String> = _progressMessage.asStateFlow()
+
     private var debugMode = false
 
     fun toggleDebug() {
@@ -32,10 +35,17 @@ class AFFTService(private val context: Context) {
 
     private fun addLog(text: String) {
         _logs.value = _logs.value + listOf(text)
+        android.util.Log.d("AFFTService", text)
+    }
+
+    private fun updateProgress(msg: String) {
+        _progressMessage.value = msg
+        addLog(msg)
     }
 
     private fun clearLogs() {
         _logs.value = emptyList()
+        _progressMessage.value = ""
     }
 
     fun getWorkDir(): File {
@@ -69,6 +79,10 @@ class AFFTService(private val context: Context) {
         File(getTempDir(), "img_src").mkdirs()
         File(getTempDir(), "filesystem_work").mkdirs()
         File(getTempDir(), "logs").mkdirs()
+        // Pastikan folder Downloads/AFFT ada
+        updateProgress("Menyalin \$destName ke Downloads/AFFT/...")
+            val downloadsDir = File("/storage/emulated/0/Download/AFFT")
+        if (!downloadsDir.exists()) downloadsDir.mkdirs()
     }
 
     suspend fun copyUriToFile(uri: Uri, destFile: File): Boolean {
@@ -88,8 +102,9 @@ class AFFTService(private val context: Context) {
     suspend fun extractPayload(inputUri: Uri): OperationResult {
         ensureDirs()
         _isRunning.value = true
+        _progressMessage.value = "Menyalin file payload..."
         clearLogs()
-        addLog("=== Extract payload.bin ===")
+        addLog("=== Extract payload.bin ==="")
 
         return try {
             val payloadDumper = BinaryManager.getBinaryPath(context, "payload-dumper-go")
@@ -100,6 +115,7 @@ class AFFTService(private val context: Context) {
                 return OperationResult(false, "Extract Payload", "Failed to copy input file")
             }
 
+            updateProgress("Extracting payload, mohon tunggu...")
             addLog("Running payload-dumper-go...")
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(payloadDumper, payloadFile.absolutePath, "-o",
@@ -128,6 +144,7 @@ class AFFTService(private val context: Context) {
     suspend fun unpackSuper(inputUri: Uri): OperationResult {
         ensureDirs()
         _isRunning.value = true
+        _progressMessage.value = "Menyalin super.img..."
         clearLogs()
         addLog("=== Unpack super.img ===")
 
@@ -135,6 +152,7 @@ class AFFTService(private val context: Context) {
             val simg2img = BinaryManager.getBinaryPath(context, "simg2img")
             val lpunpack = BinaryManager.getBinaryPath(context, "lpunpack")
 
+            updateProgress("Mengonversi sparse image...")
             if (simg2img == null || lpunpack == null) {
                 return OperationResult(false, "Unpack Super",
                     "simg2img or lpunpack not found")
@@ -162,7 +180,8 @@ class AFFTService(private val context: Context) {
                     return OperationResult(false, "Unpack Super", "simg2img conversion failed")
                 }
 
-                addLog("Running lpunpack...")
+                updateProgress("Unpacking partisi dengan lpunpack...")
+            addLog("Running lpunpack...")
                 val unpackResult = ShellExecutor.executeWithProgress(
                     command = listOf(lpunpack, rawFile.absolutePath, workDir.absolutePath),
                     workingDir = workDir,
@@ -205,6 +224,7 @@ class AFFTService(private val context: Context) {
     suspend fun repackSuper(): OperationResult {
         ensureDirs()
         _isRunning.value = true
+        _progressMessage.value = "Mempersiapkan repack super..."
         clearLogs()
         addLog("=== Repack super.img ===")
 
@@ -264,6 +284,7 @@ class AFFTService(private val context: Context) {
 
             cmd.add("--output=${outputImg.absolutePath}")
 
+            updateProgress("Menjalankan lpmake untuk repack...")
             addLog("Running lpmake...")
             val result = ShellExecutor.executeWithProgress(
                 command = cmd,
@@ -292,6 +313,7 @@ class AFFTService(private val context: Context) {
     suspend fun extractFilesystem(inputUri: Uri): OperationResult {
         ensureDirs()
         _isRunning.value = true
+        _progressMessage.value = "Menyalin filesystem image..."
         clearLogs()
         addLog("=== Extract Filesystem ===")
 
@@ -335,7 +357,8 @@ class AFFTService(private val context: Context) {
             var workingImg = imgFile
 
             if (isSparse) {
-                addLog("Converting sparse to raw...")
+                updateProgress("Mengonversi sparse ke raw ext4...")
+                    addLog("Converting sparse to raw...")
                 val rawFile = File(getTempDir(), "${imgFile.nameWithoutExtension}_raw.img")
                 val simg2img = BinaryManager.getBinaryPath(context, "simg2img")
                 if (simg2img != null) {
@@ -495,6 +518,7 @@ class AFFTService(private val context: Context) {
             val targetFile = File(bootWorkDir, bootType)
             bootFile.copyTo(targetFile, overwrite = true)
 
+            updateProgress("Unpacking boot image dengan magiskboot...")
             addLog("Running magiskboot unpack...")
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(magiskboot, "unpack", targetFile.absolutePath),
@@ -536,6 +560,7 @@ class AFFTService(private val context: Context) {
                     "Source image not found. Unpack first.")
             }
 
+            updateProgress("Repacking boot image dengan magiskboot...")
             addLog("Running magiskboot repack...")
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(magiskboot, "repack", srcImg.absolutePath),
@@ -608,11 +633,72 @@ class AFFTService(private val context: Context) {
         }?.map { it.name }?.sorted() ?: emptyList()
     }
 
+    suspend fun listTempContents(): List<File> {
+        val tempDir = getTempDir()
+        if (!tempDir.exists()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            tempDir.listFiles()?.flatMap { dir ->
+                if (dir.isDirectory) {
+                    listOf(dir) + (dir.listFiles()?.filter { it.isDirectory } ?: emptyList())
+                } else {
+                    emptyList()
+                }
+            }?.sortedBy { it.absolutePath } ?: emptyList()
+        }
+    }
+
+    suspend fun exportAllToDownloads(): OperationResult {
+        return withContext(Dispatchers.IO) {
+            ensureDirs()
+            _isRunning.value = true
+            clearLogs()
+            addLog("=== Export All to Downloads ===")
+            try {
+                updateProgress("Mengekspor hasil kerja ke Downloads/AFFT/...")
+                updateProgress("Menyalin \$destName ke Downloads/AFFT/...")
+            val downloadsDir = File("/storage/emulated/0/Download/AFFT")
+                if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                val tempDir = getTempDir()
+                if (tempDir.exists()) {
+                    val subdirsToCopy = listOf("payload", "img", "repacked", "boot_out", "contents", "logs")
+                    var copiedCount = 0
+                    for (subdir in subdirsToCopy) {
+                        val src = File(tempDir, subdir)
+                        if (src.exists() && src.isDirectory) {
+                            val dest = File(downloadsDir, subdir)
+                            dest.deleteRecursively()
+                            src.copyRecursively(dest, overwrite = true)
+                            copiedCount++
+                            addLog("  Exported: $subdir/")
+                        }
+                    }
+                    if (copiedCount > 0) {
+                        addLog("[OK] Hasil kerja diekspor ke Downloads/AFFT/")
+                        updateProgress("Ekspor selesai!")
+                        OperationResult(true, "Export All", "Diekspor ke Downloads/AFFT/", downloadsDir.absolutePath)
+                    } else {
+                        addLog("[INFO] Tidak ada data untuk diekspor")
+                        updateProgress("Tidak ada data untuk diekspor")
+                        OperationResult(true, "Export All", "Tidak ada data untuk diekspor")
+                    }
+                } else {
+                    OperationResult(false, "Export All", "Folder temp belum ada")
+                }
+            } catch (e: Exception) {
+                addLog("[ERROR] Export gagal: \${e.message}")
+                OperationResult(false, "Export All", e.message ?: "Unknown error")
+            } finally {
+                _isRunning.value = false
+            }
+        }
+    }
+
     suspend fun copyResultToDownload(resultPath: String, destName: String): Boolean {
         return try {
             val sourceFile = File(resultPath)
             if (!sourceFile.exists()) return false
 
+            updateProgress("Menyalin \$destName ke Downloads/AFFT/...")
             val downloadsDir = File("/storage/emulated/0/Download/AFFT")
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
 
