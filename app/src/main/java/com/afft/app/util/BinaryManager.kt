@@ -47,13 +47,44 @@ object BinaryManager {
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
         val libFile = File(nativeLibDir, "lib${name}.so")
 
-        val exists = libFile.exists()
-        val canExec = libFile.canExecute()
+        if (!libFile.exists()) {
+            Log.d(TAG, "getNativeLibBinaryPath($name): NOT FOUND at ${libFile.absolutePath}")
+            return null
+        }
+
         val canRead = libFile.canRead()
+        var canExec = libFile.canExecute()
 
-        Log.d(TAG, "getNativeLibBinaryPath($name): exists=$exists execute=$canExec read=$canRead path=${libFile.absolutePath}")
+        Log.d(TAG, "getNativeLibBinaryPath($name): exists=true execute=$canExec read=$canRead path=${libFile.absolutePath}")
 
-        return if (exists && canExec) libFile.absolutePath else null
+        // Attempt to fix executable permission if needed
+        if (!canExec) {
+            Log.w(TAG, "getNativeLibBinaryPath($name): not executable, attempting setExecutable(true)")
+            try {
+                val fixed = libFile.setExecutable(true, false)
+                if (fixed) {
+                    canExec = libFile.canExecute()
+                    Log.d(TAG, "getNativeLibBinaryPath($name): setExecutable(true) succeeded, execute=$canExec")
+                } else {
+                    Log.w(TAG, "getNativeLibBinaryPath($name): setExecutable(true) returned false")
+                    // Last resort: try chmod via shell
+                    try {
+                        val chmodProcess = Runtime.getRuntime().exec(
+                            arrayOf("/system/bin/chmod", "755", libFile.absolutePath)
+                        )
+                        chmodProcess.waitFor()
+                        canExec = libFile.canExecute()
+                        Log.d(TAG, "getNativeLibBinaryPath($name): after chmod 755, execute=$canExec")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "getNativeLibBinaryPath($name): chmod fallback failed: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "getNativeLibBinaryPath($name): setExecutable threw: ${e.message}")
+            }
+        }
+
+        return if (canExec) libFile.absolutePath else null
     }
 
     fun deployBinaries(context: Context): Result<List<String>> {
@@ -70,7 +101,8 @@ object BinaryManager {
 
                 val targetFile = File(binDir, assetName)
 
-                // Skip if binary already exists in nativeLibraryDir (jniLibs)
+                // Skip if binary already available from nativeLibraryDir (jniLibs)
+                // getNativeLibBinaryPath() verifies the file is executable
                 val nativeLibPath = getNativeLibBinaryPath(context, assetName)
                 if (nativeLibPath != null) {
                     Log.d(TAG, "$assetName already available via nativeLibraryDir: $nativeLibPath")
@@ -134,10 +166,14 @@ object BinaryManager {
 
     fun getBinaryPath(context: Context, name: String): String? {
         // Priority 1: Try nativeLibraryDir (jniLibs) - works on Android 14+ with SELinux
+        // getNativeLibBinaryPath() now verifies executability and attempts to fix permissions
         val nativeLibPath = getNativeLibBinaryPath(context, name)
-        if (nativeLibPath != null) return nativeLibPath
+        if (nativeLibPath != null) {
+            Log.d(TAG, "getBinaryPath($name): using nativeLibraryDir path: $nativeLibPath")
+            return nativeLibPath
+        }
 
-        // Priority 2: Fall back to extracted binary in filesDir
+        // Priority 2: Fall back to binary in app assets (extracted to filesDir)
         val binDir = getBinDirectory(context)
         val binary = File(binDir, name)
 
@@ -147,7 +183,17 @@ object BinaryManager {
 
         Log.d(TAG, "getBinaryPath($name) [fallback]: exists=$exists execute=$canExec read=$canRead path=${binary.absolutePath}")
 
-        return if (exists && canExec) binary.absolutePath else null
+        if (exists) {
+            // Try to fix executable permission
+            if (!canExec) {
+                binary.setExecutable(true, false)
+            }
+            if (binary.canExecute()) {
+                return binary.absolutePath
+            }
+        }
+
+        return null
     }
 
     fun verifyBinaries(context: Context): Map<String, Boolean> {
