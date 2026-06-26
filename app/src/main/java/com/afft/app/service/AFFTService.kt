@@ -8,6 +8,8 @@ import com.afft.app.util.ShellExecutor
 import com.afft.app.util.SparseImage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileInputStream
@@ -104,7 +106,7 @@ class AFFTService(private val context: Context) {
         _isRunning.value = true
         _progressMessage.value = "Menyalin file payload..."
         clearLogs()
-        addLog("=== Extract payload.bin ==="")
+        addLog("=== Extract payload.bin ===")
 
         return try {
             val payloadDumper = BinaryManager.getBinaryPath(context, "payload-dumper-go")
@@ -653,10 +655,10 @@ class AFFTService(private val context: Context) {
             _isRunning.value = true
             clearLogs()
             addLog("=== Export All to Downloads ===")
+            val result: OperationResult
             try {
                 updateProgress("Mengekspor hasil kerja ke Downloads/AFFT/...")
-                updateProgress("Menyalin \$destName ke Downloads/AFFT/...")
-            val downloadsDir = File("/storage/emulated/0/Download/AFFT")
+                val downloadsDir = File("/storage/emulated/0/Download/AFFT")
                 if (!downloadsDir.exists()) downloadsDir.mkdirs()
                 val tempDir = getTempDir()
                 if (tempDir.exists()) {
@@ -675,21 +677,22 @@ class AFFTService(private val context: Context) {
                     if (copiedCount > 0) {
                         addLog("[OK] Hasil kerja diekspor ke Downloads/AFFT/")
                         updateProgress("Ekspor selesai!")
-                        OperationResult(true, "Export All", "Diekspor ke Downloads/AFFT/", downloadsDir.absolutePath)
+                        result = OperationResult(true, "Export All", "Diekspor ke Downloads/AFFT/", downloadsDir.absolutePath)
                     } else {
                         addLog("[INFO] Tidak ada data untuk diekspor")
                         updateProgress("Tidak ada data untuk diekspor")
-                        OperationResult(true, "Export All", "Tidak ada data untuk diekspor")
+                        result = OperationResult(true, "Export All", "Tidak ada data untuk diekspor")
                     }
                 } else {
-                    OperationResult(false, "Export All", "Folder temp belum ada")
+                    result = OperationResult(false, "Export All", "Folder temp belum ada")
                 }
             } catch (e: Exception) {
-                addLog("[ERROR] Export gagal: \${e.message}")
-                OperationResult(false, "Export All", e.message ?: "Unknown error")
+                addLog("[ERROR] Export gagal: ${e.message}")
+                result = OperationResult(false, "Export All", e.message ?: "Unknown error")
             } finally {
                 _isRunning.value = false
             }
+            result
         }
     }
 
@@ -698,7 +701,6 @@ class AFFTService(private val context: Context) {
             val sourceFile = File(resultPath)
             if (!sourceFile.exists()) return false
 
-            updateProgress("Menyalin \$destName ke Downloads/AFFT/...")
             val downloadsDir = File("/storage/emulated/0/Download/AFFT")
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
 
