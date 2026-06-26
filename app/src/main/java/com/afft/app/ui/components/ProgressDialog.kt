@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,15 +17,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
@@ -56,6 +59,10 @@ fun ProcessingOverlay(
             label = "arcLen"
         )
 
+        // Capture color values BEFORE entering Canvas draw scope
+        val primaryColor = MaterialTheme.colorScheme.primary
+        val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+
         Column(
             modifier = modifier
                 .fillMaxWidth()
@@ -75,7 +82,7 @@ fun ProcessingOverlay(
                     Canvas(modifier = Modifier.size(28.dp)) {
                         val sweepAngle = 60f + arcProgress * 240f
                         drawArc(
-                            color = MaterialTheme.colorScheme.primary,
+                            color = primaryColor,
                             startAngle = angle,
                             sweepAngle = sweepAngle,
                             useCenter = false,
@@ -93,13 +100,33 @@ fun ProcessingOverlay(
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            // Use a fixed progress value to avoid indeterminate animation internal keyframes crash
-            LinearProgressIndicator(
-                progress = { 0.5f },
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+
+            // Custom horizontal progress bar (avoids Material3 LinearProgressIndicator internal keyframes crash)
+            val barProgress by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1500),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "barProgress"
             )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .background(surfaceVariantColor, RoundedCornerShape(3.dp))
+            ) {
+                Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
+                    val barWidth = size.width * barProgress
+                    drawRoundRect(
+                        color = primaryColor,
+                        topLeft = Offset.Zero,
+                        size = Size(barWidth, size.height),
+                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                    )
+                }
+            }
         }
     }
 }
