@@ -29,6 +29,7 @@ fun FileManagerScreen(
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var pathHistory by remember { mutableStateOf<List<File>>(emptyList()) }
     var showSize by remember { mutableStateOf(false) }
+    var showOutput by remember { mutableStateOf(false) }
 
     val workDir = afftService.getWorkDir()
     val tempDir = afftService.getTempDir()
@@ -135,12 +136,45 @@ fun FileManagerScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // File list
+        // File list - always shows space for at least 5 items
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
+            LazyColumn(
+                modifier = Modifier.padding(4.dp)
+            ) {
+                // If files exist, show them
+                if (files.isNotEmpty()) {
+                    items(files) { file ->
+                        FileRow(
+                            file = file,
+                            onClick = {
+                                if (file.isDirectory) {
+                                    pathHistory = pathHistory + (currentDir ?: tempDir)
+                                    refreshFiles(file)
+                                }
+                            },
+                            showSize = showSize
+                        )
+                    }
+                }
+                // Ensure minimum 5 rows visible (placeholder empty rows)
+                val minRows = 5
+                val currentRows = if (files.isNotEmpty()) files.size else 0
+                if (currentRows < minRows) {
+                    items(minRows - currentRows) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .padding(vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+            // Show empty message overlay if no files
             if (files.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -152,33 +186,16 @@ fun FileManagerScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.padding(4.dp)
-                ) {
-                    items(files) { file ->
-                        FileRow(
-                            file = file,
-                            isCurrentDir = currentDir?.absolutePath == tempDir.absolutePath,
-                            onClick = {
-                                if (file.isDirectory) {
-                                    pathHistory = pathHistory + (currentDir ?: tempDir)
-                                    refreshFiles(file)
-                                }
-                            },
-                            showSize = showSize
-                        )
-                    }
-                }
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Info bar
+        // Manager bar: info + action buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 "${files.size} item(s) | ${currentDir?.absolutePath ?: ""}",
@@ -187,26 +204,33 @@ fun FileManagerScreen(
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            TextButton(onClick = { showSize = !showSize }) {
-                Text(if (showSize) "Hide Size" else "Show Size", fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { showSize = !showSize }) {
+                    Text(if (showSize) "Hide Size" else "Show Size", fontSize = 12.sp)
+                }
+                TextButton(onClick = { showOutput = !showOutput }) {
+                    Text(if (showOutput) "Hide Log" else "Log", fontSize = 12.sp)
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Output:", style = MaterialTheme.typography.titleSmall)
-        Spacer(modifier = Modifier.height(4.dp))
-        TerminalView(
-            logs = logs,
-            modifier = Modifier.fillMaxWidth().height(120.dp),
-            maxHeight = 150
-        )
+        // Collapsible output log
+        if (showOutput) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Output:", style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.height(4.dp))
+            TerminalView(
+                logs = logs,
+                modifier = Modifier.fillMaxWidth().height(80.dp),
+                maxHeight = 120
+            )
+        }
     }
 }
 
 @Composable
 fun FileRow(
     file: File,
-    isCurrentDir: Boolean,
     onClick: () -> Unit,
     showSize: Boolean
 ) {
