@@ -14,7 +14,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.afft.app.service.AFFTService
-import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -29,7 +28,6 @@ fun FileManagerScreen(
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var pathHistory by remember { mutableStateOf<List<File>>(emptyList()) }
     var showSize by remember { mutableStateOf(false) }
-    var showOutput by remember { mutableStateOf(false) }
 
     val workDir = afftService.getWorkDir()
     val tempDir = afftService.getTempDir()
@@ -208,23 +206,10 @@ fun FileManagerScreen(
                 TextButton(onClick = { showSize = !showSize }) {
                     Text(if (showSize) "Hide Size" else "Show Size", fontSize = 12.sp)
                 }
-                TextButton(onClick = { showOutput = !showOutput }) {
-                    Text(if (showOutput) "Hide Log" else "Log", fontSize = 12.sp)
-                }
             }
         }
 
-        // Collapsible output log
-        if (showOutput) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text("Output:", style = MaterialTheme.typography.titleSmall)
-            Spacer(modifier = Modifier.height(4.dp))
-            TerminalView(
-                logs = logs,
-                modifier = Modifier.fillMaxWidth().height(80.dp),
-                maxHeight = 120
-            )
-        }
+        
     }
 }
 

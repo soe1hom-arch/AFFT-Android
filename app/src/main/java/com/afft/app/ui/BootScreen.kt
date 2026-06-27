@@ -16,7 +16,6 @@ import com.afft.app.model.BootImageType
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
-import com.afft.app.ui.components.TerminalView
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -181,14 +180,5 @@ fun BootScreen(
             Spacer(modifier = Modifier.height(16.dp))
             ProcessingOverlay(isRunning = true, message = "Processing boot image...")
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Output:", style = MaterialTheme.typography.titleSmall)
-        Spacer(modifier = Modifier.height(4.dp))
-        TerminalView(
-            logs = logs,
-            modifier = Modifier.fillMaxWidth(),
-            maxHeight = 300
-        )
     }
 }

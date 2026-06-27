@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.dp
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
 import com.afft.app.ui.components.ProcessingOverlay
-import com.afft.app.ui.components.TerminalView
 import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.launch
 import java.io.File
@@ -198,14 +197,5 @@ fun FilesystemScreen(
             Spacer(modifier = Modifier.height(16.dp))
             ProcessingOverlay(isRunning = true)
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Output:", style = MaterialTheme.typography.titleSmall)
-        Spacer(modifier = Modifier.height(4.dp))
-        TerminalView(
-            logs = logs,
-            modifier = Modifier.fillMaxWidth(),
-            maxHeight = 200
-        )
     }
 }

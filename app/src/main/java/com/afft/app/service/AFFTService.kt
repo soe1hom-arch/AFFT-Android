@@ -47,7 +47,7 @@ class AFFTService(private val context: Context) {
         android.util.Log.d("AFFTService", msg)
     }
 
-    private fun clearLogs() {
+    fun clearLogs() {
         _logs.value = emptyList()
         _progressMessage.value = ""
     }
