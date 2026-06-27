@@ -102,7 +102,7 @@ fun FileManagerScreen(
                     pathHistory = emptyList()
                     refreshFiles(inputDir)
                 },
-                label = { Text("Temp", fontSize = 11.sp) },
+                label = { Text("Temp", fontSize = 12.sp) },
                 leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) }
             )
             AssistChip(
@@ -110,7 +110,7 @@ fun FileManagerScreen(
                     pathHistory = emptyList()
                     refreshFiles(workDir)
                 },
-                label = { Text("Work", fontSize = 11.sp) },
+                label = { Text("Work", fontSize = 12.sp) },
                 leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) }
             )
             AssistChip(
@@ -118,7 +118,7 @@ fun FileManagerScreen(
                     pathHistory = emptyList()
                     refreshFiles(inputDir)
                 },
-                label = { Text("Input", fontSize = 11.sp) },
+                label = { Text("Input", fontSize = 12.sp) },
                 leadingIcon = { Icon(Icons.Default.DriveFileMove, null, modifier = Modifier.size(16.dp)) }
             )
             if (downloadDir.exists()) {
@@ -127,7 +127,7 @@ fun FileManagerScreen(
                         pathHistory = emptyList()
                         refreshFiles(downloadDir)
                     },
-                    label = { Text("Download", fontSize = 11.sp) },
+                    label = { Text("Download", fontSize = 12.sp) },
                     leadingIcon = { Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp)) }
                 )
             }
@@ -185,11 +185,11 @@ fun FileManagerScreen(
                 "${files.size} item(s) | ${currentDir?.absolutePath ?: ""}",
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             TextButton(onClick = { showSize = !showSize }) {
-                Text(if (showSize) "Hide Size" else "Show Size", fontSize = 11.sp)
+                Text(if (showSize) "Hide Size" else "Show Size", fontSize = 12.sp)
             }
         }
 
@@ -198,7 +198,7 @@ fun FileManagerScreen(
         Spacer(modifier = Modifier.height(4.dp))
         TerminalView(
             logs = logs,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(120.dp),
             maxHeight = 150
         )
     }
@@ -248,14 +248,14 @@ fun FileRow(
                 Text(
                     text = file.name,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
+                    fontSize = 15.sp,
                     maxLines = 1
                 )
                 if (showSize && !file.isDirectory) {
                     Text(
                         text = formatFileSize(file.length()),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
+                        fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

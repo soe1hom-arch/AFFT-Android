@@ -828,23 +828,37 @@ class AFFTService(private val context: Context) {
     }
 
     fun cleanOutput() {
-        ensureDirs()
+        val tempDir = getTempDir()
+        // Safety: verify temp dir is inside app private storage
+        if (!tempDir.absolutePath.startsWith(context.filesDir.absolutePath)) {
+            addLog("[ERROR] Safety abort: temp dir is outside app private storage!")
+            return
+        }
+        if (!tempDir.exists()) {
+            addLog("[WARN] Temp dir does not exist, nothing to clean")
+            return
+        }
         clearLogs()
         addLog("=== Clean Output ===")
 
         val dirsToClean = listOf(
             "img", "contents", "repacked", "payload",
-            "boot", "boot_out", "img_src", "filesystem_work"
+            "boot", "boot_out", "img_src", "filesystem_work", "logs"
         )
 
         for (dirName in dirsToClean) {
-            val dir = File(getTempDir(), dirName)
+            val dir = File(tempDir, dirName)
             if (dir.exists()) {
+                // Double-check path is within tempDir
+                if (!dir.absolutePath.startsWith(tempDir.absolutePath + File.separator)) {
+                    addLog("[ERROR] Safety abort: $dirName/ is outside temp dir!")
+                    continue
+                }
                 dir.deleteRecursively()
-                dir.mkdirs()
                 addLog("Cleaned: $dirName/")
             }
         }
+        ensureDirs()
 
         addLog("[OK] Output cleaned")
     }
@@ -1017,9 +1031,15 @@ class AFFTService(private val context: Context) {
             return false
         }
         return try {
+            // Flatten nested path to avoid MediaStore multi-level subfolder limitation
+            val flatName = if (relativePath.isNotEmpty()) {
+                "${relativePath.replace("/", "_")}_$fileName"
+            } else {
+                fileName
+            }
             val contentValues = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                put(MediaStore.Downloads.RELATIVE_PATH, "AFFT/$relativePath")
+                put(MediaStore.Downloads.DISPLAY_NAME, flatName)
+                put(MediaStore.Downloads.RELATIVE_PATH, "Download/AFFT")
                 put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
             }
             val resolver = context.contentResolver
@@ -1028,7 +1048,7 @@ class AFFTService(private val context: Context) {
             resolver.openOutputStream(uri)?.use { outputStream ->
                 sourceFile.inputStream().use { input -> input.copyTo(outputStream) }
             }
-            addLog("[OK] Disimpan via MediaStore: AFFT/$relativePath/$fileName")
+            addLog("[OK] Disimpan via MediaStore: AFFT/$flatName")
             true
         } catch (e: Exception) {
             addLog("[ERROR] MediaStore gagal: ${e.message}")
@@ -1038,8 +1058,14 @@ class AFFTService(private val context: Context) {
 
     private suspend fun exportDirectoryToDownloads(srcDir: File, subdirName: String): Boolean {
         return try {
+            // On Android 10+ (Q), scoped storage blocks direct file access.
+            // Skip direct path and use MediaStore exclusively.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                return exportDirectoryViaMediaStore(srcDir, subdirName)
+            }
+
+            // Pre-Q: try direct path first
             val downloadsDir = File("/storage/emulated/0/Download/AFFT")
-            // Try direct path first
             try {
                 val dest = File(downloadsDir, subdirName)
                 srcDir.copyRecursively(dest, overwrite = true)
@@ -1062,30 +1088,54 @@ class AFFTService(private val context: Context) {
                 if (debugMode) addLog("[DEBUG] Direct export gagal: ${e.message}")
             }
             // Fallback: MediaStore for each file
-            addLog("  [INFO] Mencoba via MediaStore untuk $subdirName...")
-            var successCount = 0
-            val files = srcDir.listFiles() ?: emptyArray()
-            for (file in files) {
-                if (file.isFile) {
-                    if (saveFileToDownloadsMediaStore(file, subdirName, file.name)) successCount++
-                } else if (file.isDirectory) {
-                    val nestedFiles = file.listFiles() ?: emptyArray()
-                    for (nf in nestedFiles) {
-                        if (saveFileToDownloadsMediaStore(nf, "${subdirName}/${file.name}", nf.name)) successCount++
-                    }
-                }
-            }
-            if (successCount > 0) {
-                addLog("  Exported (MediaStore): $subdirName/ ($successCount files)")
-                true
-            } else {
-                addLog("  [ERROR] Gagal mengekspor $subdirName/")
-                false
-            }
+            return exportDirectoryViaMediaStore(srcDir, subdirName)
         } catch (e: Exception) {
             addLog("  [ERROR] Export $subdirName gagal: ${e.message}")
             false
         }
+    }
+
+    private suspend fun exportDirectoryViaMediaStore(srcDir: File, relativePath: String): Boolean {
+        addLog("  [INFO] Mengekspor via MediaStore: $relativePath...")
+        var successCount = 0
+        val files = srcDir.listFiles() ?: emptyArray()
+        for (file in files) {
+            if (file.isFile) {
+                if (saveFileToDownloadsMediaStore(file, relativePath, file.name)) successCount++
+            } else if (file.isDirectory) {
+                // Recurse into subdirectory
+                val subPath = "$relativePath/${file.name}"
+                val subFiles = file.listFiles() ?: emptyArray()
+                for (nf in subFiles) {
+                    if (nf.isFile) {
+                        if (saveFileToDownloadsMediaStore(nf, subPath, nf.name)) successCount++
+                    } else if (nf.isDirectory) {
+                        // Recursively handle deeper nesting
+                        successCount += exportAllNestedFiles(nf, subPath)
+                    }
+                }
+            }
+        }
+        if (successCount > 0) {
+            addLog("  Exported (MediaStore): $relativePath/ ($successCount files)")
+            true
+        } else {
+            addLog("  [ERROR] Gagal mengekspor $relativePath/")
+            false
+        }
+    }
+
+    private fun exportAllNestedFiles(dir: File, relativePath: String): Int {
+        var count = 0
+        val files = dir.listFiles() ?: return 0
+        for (file in files) {
+            if (file.isFile) {
+                if (saveFileToDownloadsMediaStore(file, relativePath, file.name)) count++
+            } else if (file.isDirectory) {
+                count += exportAllNestedFiles(file, "$relativePath/${file.name}")
+            }
+        }
+        return count
     }
 
     suspend fun copyResultToDownload(resultPath: String, destName: String): Boolean {

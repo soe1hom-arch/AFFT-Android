@@ -401,7 +401,7 @@ fun HomeScreen(
                         Text("Fungsi Clean akan menghapus SEMUA hasil ekstraksi dan repack di folder temp/")
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Folder yang akan dibersihkan: img, contents, repacked, payload, boot, boot_out",
+                            "Folder yang akan dibersihkan: img, contents, repacked, payload, boot, boot_out, img_src, filesystem_work, logs",
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace
                         )
