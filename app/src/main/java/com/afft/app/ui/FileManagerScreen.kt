@@ -64,6 +64,15 @@ fun FileManagerScreen(
         }
     }
 
+    fun refreshFiles(dir: File) {
+        currentDir = dir
+        files = dir.listFiles()?.sortedWith(
+            compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }
+        ) ?: emptyList()
+        selectedFiles = emptySet()
+        selectMode = false
+    }
+
     // File picker for importing from external storage
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -81,15 +90,6 @@ fun FileManagerScreen(
                 }
             }
         }
-    }
-
-    fun refreshFiles(dir: File) {
-        currentDir = dir
-        files = dir.listFiles()?.sortedWith(
-            compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }
-        ) ?: emptyList()
-        selectedFiles = emptySet()
-        selectMode = false
     }
 
     fun toggleSelectFile(file: File) {
