@@ -99,23 +99,54 @@ class AFFTService(private val context: Context) {
     suspend fun copyFileTo(src: File, destDir: File): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                if (!checkStorageSpace(src.length(), destDir.absolutePath)) {
+                // Validasi sumber
+                if (!src.exists()) {
+                    addLog("[ERROR] Sumber tidak ditemukan: ${src.absolutePath}")
+                    return@withContext false
+                }
+                if (!src.canRead()) {
+                    addLog("[ERROR] Tidak bisa membaca: ${src.absolutePath} (izin?)")
+                    return@withContext false
+                }
+
+                val size = if (src.isDirectory) src.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                           else src.length()
+                addLog("[INFO] Ukuran: ${formatFileSizePublic(size)}")
+
+                if (!checkStorageSpace(size, destDir.absolutePath)) {
                     return@withContext false
                 }
                 if (!destDir.exists()) destDir.mkdirs()
-                val dest = File(destDir, src.name)
-                var i = 1
-                while (dest.exists()) {
-                    val newName = "${src.nameWithoutExtension}_$i.${src.extension}"
-                    val finalDest = File(destDir, if (src.extension.isNotEmpty()) newName else "${src.name}_$i")
-                    if (!finalDest.exists()) break
-                    i++
+                if (!destDir.exists()) {
+                    addLog("[ERROR] Gagal membuat folder tujuan: ${destDir.absolutePath}")
+                    return@withContext false
                 }
-                src.copyTo(dest, overwrite = false)
-                addLog("[OK] Disalin: ${src.name} → ${destDir.name}/")
-                true
+
+                val dest = resolveDestFile(src, destDir)
+                addLog("[INFO] Menyalin: ${src.name} → ${dest.parent}")
+
+                if (src.isDirectory) {
+                    src.copyRecursively(dest, overwrite = false)
+                } else {
+                    // Gunakan stream untuk memastikan file benar-benar tersalin
+                    src.inputStream().use { input ->
+                        dest.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+
+                // Verifikasi hasil
+                if (dest.exists() && (dest.isDirectory || dest.length() == src.length())) {
+                    addLog("[OK] Disalin: ${src.name} → ${destDir.name}/")
+                    true
+                } else {
+                    val destSize = if (dest.exists()) formatFileSizePublic(dest.length()) else "0"
+                    addLog("[ERROR] Hasil copy tidak valid! Dest size: $destSize")
+                    false
+                }
             } catch (e: Exception) {
-                addLog("[ERROR] Gagal menyalin: ${e.message}")
+                addLog("[ERROR] Gagal menyalin ${src.name}: ${e.message}")
                 false
             }
         }
@@ -124,24 +155,61 @@ class AFFTService(private val context: Context) {
     suspend fun moveFileTo(src: File, destDir: File): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                if (!checkStorageSpace(src.length(), destDir.absolutePath)) {
+                if (!src.exists()) {
+                    addLog("[ERROR] Sumber tidak ditemukan: ${src.absolutePath}")
+                    return@withContext false
+                }
+                val size = if (src.isDirectory) src.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                           else src.length()
+                if (!checkStorageSpace(size, destDir.absolutePath)) {
                     return@withContext false
                 }
                 if (!destDir.exists()) destDir.mkdirs()
-                val dest = File(destDir, src.name)
+                val dest = resolveDestFile(src, destDir)
+                addLog("[INFO] Memindah: ${src.name} → ${dest.parent}")
+
                 var moved = src.renameTo(dest)
                 if (!moved) {
-                    src.copyTo(dest, overwrite = true)
-                    src.delete()
+                    addLog("[INFO] rename gagal, fallback copy+delete...")
+                    if (src.isDirectory) {
+                        src.copyRecursively(dest, overwrite = true)
+                        src.deleteRecursively()
+                    } else {
+                        src.inputStream().use { input ->
+                            dest.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        src.delete()
+                    }
                     moved = true
                 }
-                addLog("[OK] Dipindah: ${src.name} → ${destDir.name}/")
-                true
+
+                if (dest.exists()) {
+                    addLog("[OK] Dipindah: ${src.name} → ${destDir.name}/")
+                    true
+                } else {
+                    addLog("[ERROR] Gagal memindah: ${src.name}")
+                    false
+                }
             } catch (e: Exception) {
-                addLog("[ERROR] Gagal memindah: ${e.message}")
+                addLog("[ERROR] Gagal memindah ${src.name}: ${e.message}")
                 false
             }
         }
+    }
+
+    private fun resolveDestFile(src: File, destDir: File): File {
+        var dest = File(destDir, src.name)
+        var counter = 1
+        while (dest.exists()) {
+            val name = src.nameWithoutExtension
+            val ext = src.extension
+            val newName = if (ext.isNotEmpty()) "${name}_$counter.$ext" else "${name}_$counter"
+            dest = File(destDir, newName)
+            counter++
+        }
+        return dest
     }
 
     suspend fun pickAndCopyToInput(uri: Uri): File? {
