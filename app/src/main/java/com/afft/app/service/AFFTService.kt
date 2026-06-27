@@ -53,7 +53,14 @@ class AFFTService(private val context: Context) {
     }
 
     fun getWorkDir(): File {
-        val dir = File(context.filesDir, "afft_work")
+        val baseDir = context.getExternalFilesDir(null)
+        if (baseDir == null) {
+            // Fallback ke internal jika external storage tidak tersedia
+            val dir = File(context.filesDir, "afft_work")
+            if (!dir.exists()) dir.mkdirs()
+            return dir
+        }
+        val dir = File(baseDir, "afft_work")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
@@ -1071,15 +1078,20 @@ class AFFTService(private val context: Context) {
             // Hapus dulu jika sudah ada
             if (destDir.exists()) destDir.deleteRecursively()
             
-            // Coba rename dulu (instan kalo satu filesystem, kaya mv di Termux)
+            // Coba rename dulu (instan kalo satu filesystem)
             var moved = srcDir.renameTo(destDir)
             
             if (!moved) {
-                // rename gagal (beda filesystem), fallback ke copy+delete
-                addLog("  [INFO] rename gagal (beda partisi?), fallback copy+delete...")
+                // rename gagal (beda partisi), fallback copy (lebih lambat tapi aman)
+                addLog("  [INFO] rename gagal (beda partisi?), fallback copy...")
                 srcDir.copyRecursively(destDir, overwrite = true)
                 if (destDir.exists()) {
-                    srcDir.deleteRecursively()
+                    // Hapus sumber, tapi jangan gagalkan export kalau hapus gagal
+                    try {
+                        srcDir.deleteRecursively()
+                    } catch (e: Exception) {
+                        addLog("  [WARN] Gagal menghapus sumber: ${e.message}")
+                    }
                     moved = true
                 }
             }
