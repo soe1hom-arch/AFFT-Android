@@ -3,15 +3,12 @@ package com.afft.app.ui
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -62,11 +59,9 @@ fun MainScreen(afftService: AFFTService) {
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            // Sidebar drawer dengan Console/Log viewer
             ModalDrawerSheet(
                 modifier = Modifier.width(320.dp)
             ) {
-                // Header drawer
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     "AFFT Console",
@@ -75,9 +70,9 @@ fun MainScreen(afftService: AFFTService) {
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(16.dp)
                 )
-                HorizontalDivider()
+                Divider()
 
-                // Menu items
+                // Menu items in drawer
                 Column(modifier = Modifier.fillMaxWidth()) {
                     DrawerMenuItem(
                         icon = Icons.Default.Home,
@@ -135,7 +130,7 @@ fun MainScreen(afftService: AFFTService) {
                     )
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+                Divider(modifier = Modifier.padding(top = 8.dp))
                 Text(
                     "Console Output",
                     style = MaterialTheme.typography.titleSmall,
@@ -144,7 +139,6 @@ fun MainScreen(afftService: AFFTService) {
                     modifier = Modifier.padding(16.dp, 12.dp, 16.dp, 4.dp)
                 )
 
-                // TerminalView/log console dalam drawer
                 TerminalView(
                     logs = logs,
                     modifier = Modifier
@@ -154,7 +148,6 @@ fun MainScreen(afftService: AFFTService) {
                     maxHeight = 1000
                 )
 
-                // Tombol clear logs
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -168,7 +161,6 @@ fun MainScreen(afftService: AFFTService) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     TextButton(onClick = {
-                        // Clear logs - call a method in AFFTService
                         afftService.clearLogs()
                     }) {
                         Text("Clear", fontSize = 12.sp)
@@ -295,7 +287,7 @@ fun MainScreen(afftService: AFFTService) {
             }
         }
 
-        // About dialog (professional)
+        // About dialog
         if (showAboutDialog) {
             AlertDialog(
                 onDismissRequest = { showAboutDialog = false },
@@ -318,7 +310,6 @@ fun MainScreen(afftService: AFFTService) {
                         modifier = Modifier.verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.Start
                     ) {
-                        // About app
                         Text("Tentang Aplikasi", fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
@@ -329,10 +320,7 @@ fun MainScreen(afftService: AFFTService) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        // Developer info
                         Text("Tentang Pengembang", fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
@@ -361,10 +349,7 @@ fun MainScreen(afftService: AFFTService) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        // Binary status
                         Text("Status Binary", fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
@@ -382,10 +367,7 @@ fun MainScreen(afftService: AFFTService) {
                                 )
                             }
                         }
-
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        // Capabilities
                         Text("Fitur:", fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
@@ -403,6 +385,274 @@ fun MainScreen(afftService: AFFTService) {
                 }
             )
         }
+    }
+}
+
+@Composable
+fun HomeScreen(
+    afftService: AFFTService,
+    binariesReady: Boolean,
+    logs: List<String>,
+    isRunning: Boolean,
+    progressMessage: String = ""
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showCleanConfirmDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportOptions by remember { mutableStateOf(
+        mapOf(
+            "payload" to true,
+            "img" to true,
+            "repacked" to true,
+            "boot_out" to true,
+            "contents" to true,
+            "input" to false
+        )
+    ) }
+    var cleanOptions by remember { mutableStateOf(
+        mapOf(
+            "img" to true,
+            "contents" to true,
+            "repacked" to true,
+            "payload" to true,
+            "boot" to true,
+            "boot_out" to true,
+            "img_src" to true,
+            "filesystem_work" to true,
+            "logs" to true
+        )
+    ) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Banner
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "ANDROID FIRMWARE FULL TOOLKIT",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "AFFT v2.0.2 \u2014 Author: soe1hom-arch / Wandi",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Binary status
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (binariesReady) TerminalBackground
+                    else MaterialTheme.colorScheme.errorContainer
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    if (binariesReady) Icons.Default.CheckCircle else Icons.Default.Error,
+                    contentDescription = null,
+                    tint = if (binariesReady) TerminalText else TerminalError,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    if (binariesReady) "All binaries deployed successfully"
+                    else "Binary deployment failed",
+                    color = if (binariesReady) TerminalText else TerminalError,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Quick actions
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { showCleanConfirmDialog = true },
+                modifier = Modifier.weight(1f),
+                enabled = !isRunning
+            ) {
+                Icon(Icons.Default.CleaningServices, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Clean", fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = { showExportDialog = true },
+                modifier = Modifier.weight(1f),
+                enabled = !isRunning
+            ) {
+                Icon(Icons.Default.SaveAlt, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Export All", fontSize = 12.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (isRunning && progressMessage.isNotEmpty()) {
+            ProcessingOverlay(
+                isRunning = true,
+                message = progressMessage
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Export dialog
+        if (showExportDialog) {
+            AlertDialog(
+                onDismissRequest = { showExportDialog = false },
+                title = { Text("Export ke Downloads/AFFT") },
+                text = {
+                    Column {
+                        Text("Pilih folder yang akan diekspor:", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        exportOptions.forEach { (folder, selected) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        exportOptions = exportOptions + (folder to !selected)
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { checked ->
+                                        exportOptions = exportOptions + (folder to checked)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(folder, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        showExportDialog = false
+                        scope.launch {
+                            val selectedFolders = exportOptions.filter { it.value }.keys.toList()
+                            if (selectedFolders.isEmpty()) {
+                                Toast.makeText(context, "Pilih minimal satu folder", Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+                            Toast.makeText(context, "Mengekspor ${selectedFolders.size} folder...", Toast.LENGTH_SHORT).show()
+                            afftService.exportSelectedToDownloads(selectedFolders)
+                        }
+                    }) {
+                        Text("Export")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExportDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        // Clean dialog
+        if (showCleanConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showCleanConfirmDialog = false },
+                icon = {
+                    Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error)
+                },
+                title = { Text("Pilih Folder untuk Dibersihkan") },
+                text = {
+                    Column {
+                        Text("Centang folder yang ingin dihapus:", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "File di input/ dan Downloads/AFFT/ TIDAK akan terhapus.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        cleanOptions.forEach { (folder, selected) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        cleanOptions = cleanOptions + (folder to !selected)
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { checked ->
+                                        cleanOptions = cleanOptions + (folder to checked)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(folder, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCleanConfirmDialog = false
+                            scope.launch {
+                                val selectedFolders = cleanOptions.filter { it.value }.keys.toList()
+                                if (selectedFolders.isEmpty()) {
+                                    Toast.makeText(context, "Pilih minimal satu folder", Toast.LENGTH_SHORT).show()
+                                    return@launch
+                                }
+                                Toast.makeText(context, "Membersihkan ${selectedFolders.size} folder...", Toast.LENGTH_SHORT).show()
+                                afftService.cleanSelected(selectedFolders)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Hapus Folder Terpilih")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCleanConfirmDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        // NOTE: TerminalView telah dipindahkan ke sidebar drawer
     }
 }
 
@@ -444,7 +694,7 @@ private fun BulletText(text: String) {
     Row(
         modifier = Modifier.padding(start = 8.dp, top = 2.dp)
     ) {
-        Text("• ", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+        Text("\u2022 ", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
         Text(
             text,
             style = MaterialTheme.typography.bodySmall,
