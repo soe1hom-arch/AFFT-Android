@@ -3,8 +3,6 @@ package com.afft.app.service
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
-import android.content.ContentValues
 import com.afft.app.model.OperationResult
 import com.afft.app.util.BinaryManager
 import com.afft.app.util.ShellExecutor
@@ -828,6 +826,14 @@ class AFFTService(private val context: Context) {
     }
 
     fun cleanOutput() {
+        val defaultDirs = listOf(
+            "img", "contents", "repacked", "payload",
+            "boot", "boot_out", "img_src", "filesystem_work", "logs"
+        )
+        cleanSelected(defaultDirs)
+    }
+
+    fun cleanSelected(selectedDirs: List<String>) {
         val tempDir = getTempDir()
         // Safety: verify temp dir is inside app private storage
         if (!tempDir.absolutePath.startsWith(context.filesDir.absolutePath)) {
@@ -839,14 +845,9 @@ class AFFTService(private val context: Context) {
             return
         }
         clearLogs()
-        addLog("=== Clean Output ===")
+        addLog("=== Clean Selected ===")
 
-        val dirsToClean = listOf(
-            "img", "contents", "repacked", "payload",
-            "boot", "boot_out", "img_src", "filesystem_work", "logs"
-        )
-
-        for (dirName in dirsToClean) {
+        for (dirName in selectedDirs) {
             val dir = File(tempDir, dirName)
             if (dir.exists()) {
                 // Double-check path is within tempDir
@@ -856,11 +857,13 @@ class AFFTService(private val context: Context) {
                 }
                 dir.deleteRecursively()
                 addLog("Cleaned: $dirName/")
+            } else {
+                addLog("[INFO] $dirName/ does not exist, skipping")
             }
         }
         ensureDirs()
 
-        addLog("[OK] Output cleaned")
+        addLog("[OK] Clean selesai untuk ${selectedDirs.size} folder")
     }
 
     suspend fun listContentsDirs(): List<String> {
@@ -913,7 +916,7 @@ class AFFTService(private val context: Context) {
                     if (src.exists() && src.isDirectory) {
                         val files = src.listFiles()
                         if (!files.isNullOrEmpty()) {
-                            if (exportDirectoryToDownloads(src, subdir)) {
+                            if (moveDirectoryToDownloads(src, subdir)) {
                                 copiedCount++
                             }
                         } else {
@@ -929,7 +932,7 @@ class AFFTService(private val context: Context) {
                 if (inputDir.exists()) {
                     val inputFiles = inputDir.listFiles()
                     if (!inputFiles.isNullOrEmpty()) {
-                        if (exportDirectoryToDownloads(inputDir, "input")) {
+                        if (moveDirectoryToDownloads(inputDir, "input")) {
                             copiedCount++
                         }
                     }
@@ -977,7 +980,7 @@ class AFFTService(private val context: Context) {
                             if (inputDir.exists()) {
                                 val inputFiles = inputDir.listFiles()
                                 if (!inputFiles.isNullOrEmpty()) {
-                                    if (exportDirectoryToDownloads(inputDir, "input")) {
+                                    if (moveDirectoryToDownloads(inputDir, "input")) {
                                         copiedCount++
                                     }
                                 } else {
@@ -990,7 +993,7 @@ class AFFTService(private val context: Context) {
                             if (src.exists() && src.isDirectory) {
                                 val files = src.listFiles()
                                 if (!files.isNullOrEmpty()) {
-                                    if (exportDirectoryToDownloads(src, subdir)) {
+                                    if (moveDirectoryToDownloads(src, subdir)) {
                                         copiedCount++
                                     }
                                 } else {
@@ -1024,116 +1027,79 @@ class AFFTService(private val context: Context) {
         }
     }
 
-    private fun saveFileToDownloadsMediaStore(sourceFile: File, relativePath: String, fileName: String): Boolean {
-        // MediaStore.Downloads requires Android 10+
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            addLog("[INFO] MediaStore tidak tersedia (Android < 10)")
-            return false
-        }
+    private fun moveFileToDownloads(sourceFile: File, relativePath: String, fileName: String): Boolean {
         return try {
-            // Flatten nested path to avoid MediaStore multi-level subfolder limitation
-            val flatName = if (relativePath.isNotEmpty()) {
-                "${relativePath.replace("/", "_")}_$fileName"
+            val baseDir = File("/storage/emulated/0/Download/AFFT")
+            if (!baseDir.exists()) baseDir.mkdirs()
+            // Preserve full directory structure
+            val destDir = if (relativePath.isNotEmpty()) {
+                File(baseDir, relativePath)
             } else {
-                fileName
+                baseDir
             }
-            val contentValues = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, flatName)
-                put(MediaStore.Downloads.RELATIVE_PATH, "Download/AFFT")
-                put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
-            }
-            val resolver = context.contentResolver
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                ?: return false
-            resolver.openOutputStream(uri)?.use { outputStream ->
-                sourceFile.inputStream().use { input -> input.copyTo(outputStream) }
-            }
-            addLog("[OK] Disimpan via MediaStore: AFFT/$flatName")
+            if (!destDir.exists()) destDir.mkdirs()
+            val destFile = File(destDir, fileName)
+            // Copy file to destination
+            sourceFile.copyTo(destFile, overwrite = true)
+            // Delete source file after successful copy (move operation)
+            sourceFile.delete()
+            addLog("[OK] Dipindah ke Downloads/AFFT/$relativePath/$fileName")
             true
         } catch (e: Exception) {
-            addLog("[ERROR] MediaStore gagal: ${e.message}")
+            addLog("[ERROR] Gagal memindah file: ${e.message}")
             false
         }
     }
 
-    private suspend fun exportDirectoryToDownloads(srcDir: File, subdirName: String): Boolean {
+    private suspend fun moveDirectoryToDownloads(srcDir: File, subdirName: String): Boolean {
         return try {
-            // On Android 10+ (Q), scoped storage blocks direct file access.
-            // Skip direct path and use MediaStore exclusively.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return exportDirectoryViaMediaStore(srcDir, subdirName)
-            }
-
-            // Pre-Q: try direct path first
-            val downloadsDir = File("/storage/emulated/0/Download/AFFT")
-            try {
-                val dest = File(downloadsDir, subdirName)
-                srcDir.copyRecursively(dest, overwrite = true)
-                if (dest.exists()) {
-                    val files = dest.listFiles()
-                    if (!files.isNullOrEmpty()) {
-                        addLog("  Exported: $subdirName/ (${files.size} items)")
-                        return true
-                    }
+            // Use direct path for all Android versions
+            // App has MANAGE_EXTERNAL_STORAGE permission
+            val baseDir = File("/storage/emulated/0/Download/AFFT")
+            val destDir = File(baseDir, subdirName)
+            if (!destDir.exists()) destDir.mkdirs()
+            // Move files one by one to preserve structure
+            var movedCount = 0
+            val files = srcDir.listFiles() ?: emptyArray()
+            for (file in files) {
+                if (file.isFile) {
+                    if (moveFileToDownloads(file, subdirName, file.name)) movedCount++
+                } else if (file.isDirectory) {
+                    movedCount += moveAllNestedFiles(file, "$subdirName/${file.name}")
                 }
-                // dest is empty - clean up
-                if (dest.exists()) dest.deleteRecursively()
-                addLog("  [INFO] Direct copy empty, fallback MediaStore...")
-            } catch (e: Exception) {
-                // Clean up partial dest
-                try {
-                    val dest = File(downloadsDir, subdirName)
-                    if (dest.exists()) dest.deleteRecursively()
-                } catch (_: Exception) {}
-                if (debugMode) addLog("[DEBUG] Direct export gagal: ${e.message}")
             }
-            // Fallback: MediaStore for each file
-            return exportDirectoryViaMediaStore(srcDir, subdirName)
+            if (movedCount > 0) {
+                addLog("  Dipindah: $subdirName/ ($movedCount items)")
+                // Clean up source dir
+                val remaining = srcDir.listFiles()
+                if (remaining.isNullOrEmpty()) {
+                    srcDir.delete()
+                }
+                true
+            } else {
+                addLog("  [ERROR] Gagal memindah $subdirName/")
+                false
+            }
         } catch (e: Exception) {
             addLog("  [ERROR] Export $subdirName gagal: ${e.message}")
             false
         }
     }
 
-    private suspend fun exportDirectoryViaMediaStore(srcDir: File, relativePath: String): Boolean {
-        addLog("  [INFO] Mengekspor via MediaStore: $relativePath...")
-        var successCount = 0
-        val files = srcDir.listFiles() ?: emptyArray()
-        for (file in files) {
-            if (file.isFile) {
-                if (saveFileToDownloadsMediaStore(file, relativePath, file.name)) successCount++
-            } else if (file.isDirectory) {
-                // Recurse into subdirectory
-                val subPath = "$relativePath/${file.name}"
-                val subFiles = file.listFiles() ?: emptyArray()
-                for (nf in subFiles) {
-                    if (nf.isFile) {
-                        if (saveFileToDownloadsMediaStore(nf, subPath, nf.name)) successCount++
-                    } else if (nf.isDirectory) {
-                        // Recursively handle deeper nesting
-                        successCount += exportAllNestedFiles(nf, subPath)
-                    }
-                }
-            }
-        }
-        return if (successCount > 0) {
-            addLog("  Exported (MediaStore): $relativePath/ ($successCount files)")
-            true
-        } else {
-            addLog("  [ERROR] Gagal mengekspor $relativePath/")
-            false
-        }
-    }
-
-    private fun exportAllNestedFiles(dir: File, relativePath: String): Int {
+    private fun moveAllNestedFiles(dir: File, relativePath: String): Int {
         var count = 0
         val files = dir.listFiles() ?: return 0
         for (file in files) {
             if (file.isFile) {
-                if (saveFileToDownloadsMediaStore(file, relativePath, file.name)) count++
+                if (moveFileToDownloads(file, relativePath, file.name)) count++
             } else if (file.isDirectory) {
-                count += exportAllNestedFiles(file, "$relativePath/${file.name}")
+                count += moveAllNestedFiles(file, "$relativePath/${file.name}")
             }
+        }
+        // Clean up source dir if empty
+        val remaining = dir.listFiles()
+        if (remaining.isNullOrEmpty()) {
+            dir.delete()
         }
         return count
     }

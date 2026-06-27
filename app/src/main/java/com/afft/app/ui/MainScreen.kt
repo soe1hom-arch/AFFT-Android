@@ -229,6 +229,19 @@ fun HomeScreen(
             "input" to false
         )
     ) }
+    var cleanOptions by remember { mutableStateOf(
+        mapOf(
+            "img" to true,
+            "contents" to true,
+            "repacked" to true,
+            "payload" to true,
+            "boot" to true,
+            "boot_out" to true,
+            "img_src" to true,
+            "filesystem_work" to true,
+            "logs" to true
+        )
+    ) }
 
     Column(
         modifier = Modifier
@@ -388,36 +401,59 @@ fun HomeScreen(
             )
         }
 
-        // Clean confirmation dialog
+        // Clean selection dialog
         if (showCleanConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showCleanConfirmDialog = false },
                 icon = {
                     Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error)
                 },
-                title = { Text("Konfirmasi Clean") },
+                title = { Text("Pilih Folder untuk Dibersihkan") },
                 text = {
                     Column {
-                        Text("Fungsi Clean akan menghapus SEMUA hasil ekstraksi dan repack di folder temp/")
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Centang folder yang ingin dihapus:", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Folder yang akan dibersihkan: img, contents, repacked, payload, boot, boot_out, img_src, filesystem_work, logs",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "File di folder input/ dan Downloads/AFFT/ TIDAK akan terhapus.",
+                            "File di input/ dan Downloads/AFFT/ TIDAK akan terhapus.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        cleanOptions.forEach { (folder, selected) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        cleanOptions = cleanOptions + (folder to !selected)
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { checked ->
+                                        cleanOptions = cleanOptions + (folder to checked)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(folder, fontFamily = FontFamily.Monospace)
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
                             showCleanConfirmDialog = false
-                            afftService.cleanOutput()
+                            scope.launch {
+                                val selectedFolders = cleanOptions.filter { it.value }.keys.toList()
+                                if (selectedFolders.isEmpty()) {
+                                    Toast.makeText(context, "Pilih minimal satu folder", Toast.LENGTH_SHORT).show()
+                                    return@launch
+                                }
+                                Toast.makeText(context, "Membersihkan ${selectedFolders.size} folder...", Toast.LENGTH_SHORT).show()
+                                afftService.cleanSelected(selectedFolders)
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
@@ -425,7 +461,7 @@ fun HomeScreen(
                     ) {
                         Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ya, Clean Sekarang")
+                        Text("Hapus Folder Terpilih")
                     }
                 },
                 dismissButton = {
