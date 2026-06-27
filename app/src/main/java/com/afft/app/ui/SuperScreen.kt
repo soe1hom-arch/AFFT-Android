@@ -33,15 +33,7 @@ fun SuperScreen(
     var repackResult by remember { mutableStateOf<String?>(null) }
     var selectedInputFile by remember { mutableStateOf<File?>(null) }
 
-    // Auto-detect file dari input/ saat screen dimuat (misal setelah restart app)
-    LaunchedEffect(Unit) {
-        val latestFile = afftService.getLatestInputFile()
-        if (latestFile != null) {
-            selectedInputFile = latestFile
-            selectedFileName = latestFile.name
-            selectedUri = null
-        }
-    }
+
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()

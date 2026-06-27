@@ -34,15 +34,6 @@ fun PayloadScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // Auto-detect file dari input/ saat screen dimuat (misal setelah restart app)
-    LaunchedEffect(Unit) {
-        val latestFile = afftService.getLatestInputFile()
-        if (latestFile != null) {
-            selectedInputFile = latestFile
-            selectedFileName = latestFile.name
-            selectedUri = null // No URI needed, menggunakan file lokal
-        }
-    }
-
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->

@@ -144,10 +144,12 @@ class AFFTService(private val context: Context) {
 
     suspend fun extractPayload(inputUri: Uri): OperationResult {
         ensureDirs()
-        val payloadFile = File(getTempDir(), "payload_src.bin")
+        val originalName = resolveFileName(inputUri) ?: "payload_src.bin"
+        val payloadFile = File(getTempDir(), originalName)
         if (!copyUriToFile(inputUri, payloadFile)) {
             return OperationResult(false, "Extract Payload", "Failed to copy input file")
         }
+        addLog("[INFO] File sumber: $originalName (${payloadFile.length()} bytes)")
         return extractPayload(payloadFile)
     }
 
@@ -190,10 +192,12 @@ class AFFTService(private val context: Context) {
 
     suspend fun unpackSuper(inputUri: Uri): OperationResult {
         ensureDirs()
-        val superFile = File(getTempDir(), "super_src.img")
+        val originalName = resolveFileName(inputUri) ?: "super_src.img"
+        val superFile = File(getTempDir(), originalName)
         if (!copyUriToFile(inputUri, superFile)) {
             return OperationResult(false, "Unpack Super", "Failed to copy input file")
         }
+        addLog("[INFO] File sumber: $originalName (${superFile.length()} bytes)")
         return unpackSuper(superFile)
     }
 
@@ -322,10 +326,13 @@ class AFFTService(private val context: Context) {
 
     suspend fun extractFilesystem(inputUri: Uri): OperationResult {
         ensureDirs()
-        val fsFile = File(getTempDir(), "filesystem_src.img")
+        // Get original filename from URI
+        val originalName = resolveFileName(inputUri) ?: "filesystem_src.img"
+        val fsFile = File(getTempDir(), originalName)
         if (!copyUriToFile(inputUri, fsFile)) {
             return OperationResult(false, "Extract Filesystem", "Failed to copy input file")
         }
+        addLog("[INFO] File sumber: $originalName (${fsFile.length()} bytes)")
         return extractFilesystem(fsFile)
     }
 
