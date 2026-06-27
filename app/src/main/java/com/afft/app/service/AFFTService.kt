@@ -850,10 +850,12 @@ class AFFTService(private val context: Context) {
     fun cleanSelected(selectedDirs: List<String>) {
         val tempDir = getTempDir()
         // Safety: gunakan canonical path untuk cegah symlink traversal
+        // Base untuk validasi adalah parent dari tempDir (yaitu workDir)
+        val workDir = tempDir.parentFile ?: return
+        val canonWork = try { workDir.canonicalPath } catch (e: Exception) { workDir.absolutePath }
         val canonTemp = try { tempDir.canonicalPath } catch (e: Exception) { tempDir.absolutePath }
-        val canonFiles = try { context.filesDir.canonicalPath } catch (e: Exception) { context.filesDir.absolutePath }
-        if (!canonTemp.startsWith(canonFiles)) {
-            addLog("[ERROR] Safety abort: temp dir is outside app private storage!")
+        if (!canonTemp.startsWith(canonWork)) {
+            addLog("[ERROR] Safety abort: temp dir is outside work directory!")
             return
         }
         if (!tempDir.exists()) {
