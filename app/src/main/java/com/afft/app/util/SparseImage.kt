@@ -33,34 +33,44 @@ object SparseImage {
 
         return try {
             RandomAccessFile(file, "r").use { raf ->
+                // ==================== EROFS CHECK ====================
                 // EROFS superblock is at offset 0x400 with magic 0xE0F5E1E2
                 raf.seek(0x400)
                 val erofsMagic = ByteArray(4)
                 raf.readFully(erofsMagic)
-                if (erofsMagic[0] == 0xE2.toByte() && erofsMagic[1] == 0xE1.toByte() &&
-                    erofsMagic[2] == 0xF5.toByte() && erofsMagic[3] == 0xE0.toByte()) {
+                if ((erofsMagic[0].toInt() and 0xFF) == 0xE2 &&
+                    (erofsMagic[1].toInt() and 0xFF) == 0xE1 &&
+                    (erofsMagic[2].toInt() and 0xFF) == 0xF5 &&
+                    (erofsMagic[3].toInt() and 0xFF) == 0xE0) {
                     return "erofs"
                 }
 
+                // ==================== F2FS CHECK ====================
                 raf.seek(0)
                 val magic4 = ByteArray(4)
                 raf.readFully(magic4)
+                val b0 = magic4[0].toInt() and 0xFF
+                val b1 = magic4[1].toInt() and 0xFF
+                val b2 = magic4[2].toInt() and 0xFF
+                val b3 = magic4[3].toInt() and 0xFF
 
-                if ((magic4[0] == 0x10.toByte() && magic4[1] == 0x20.toByte() &&
-                     magic4[2] == 0xF5.toByte() && magic4[3] == 0xF2.toByte()) ||
-                    (magic4[0] == 0xF2.toByte() && magic4[1] == 0xF5.toByte() &&
-                     magic4[2] == 0x20.toByte() && magic4[3] == 0x10.toByte())) {
+                if ((b0 == 0x10 && b1 == 0x20 && b2 == 0xF5 && b3 == 0xF2) ||
+                    (b0 == 0xF2 && b1 == 0xF5 && b2 == 0x20 && b3 == 0x10)) {
                     return "f2fs"
                 }
 
-                if (magic4[0] == 0x1F.toByte() && magic4[1] == 0x8B.toByte()) {
+                // ==================== GZIP CHECK ====================
+                if (b0 == 0x1F && b1 == 0x8B) {
                     return "gzip"
                 }
 
+                // ==================== EXT4 CHECK ====================
                 raf.seek(0x438)
                 val ext4magic = ByteArray(2)
                 raf.readFully(ext4magic)
-                if (ext4magic[0] == 0x53.toByte() && ext4magic[1] == 0xEF.toByte()) {
+                val ext4b0 = ext4magic[0].toInt() and 0xFF
+                val ext4b1 = ext4magic[1].toInt() and 0xFF
+                if (ext4b0 == 0x53 && ext4b1 == 0xEF) {
                     return "ext4"
                 }
 

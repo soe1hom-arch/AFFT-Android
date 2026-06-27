@@ -2,6 +2,9 @@ package com.afft.app.service
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import android.content.ContentValues
 import com.afft.app.model.OperationResult
 import com.afft.app.util.BinaryManager
 import com.afft.app.util.ShellExecutor
@@ -371,6 +374,27 @@ class AFFTService(private val context: Context) {
             // Detect filesystem type on the (possibly converted) raw file
             updateProgress("Menganalisis filesystem...")
             addLog("Mengidentifikasi tipe filesystem...")
+            
+            // Debug: check first bytes and EROFS magic
+            if (debugMode) {
+                try {
+                    val debugBytes = ByteArray(16)
+                    java.io.RandomAccessFile(workingFile, "r").use { it.readFully(debugBytes) }
+                    val hexStr = debugBytes.joinToString(" ") { String.format("%02x", it.toInt() and 0xFF) }
+                    addLog("[DEBUG] 16 bytes pertama: $hexStr")
+                    
+                    val erofsBytes = ByteArray(4)
+                    java.io.RandomAccessFile(workingFile, "r").use { 
+                        it.seek(0x400)
+                        it.readFully(erofsBytes) 
+                    }
+                    val erofsHex = erofsBytes.joinToString(" ") { String.format("%02x", it.toInt() and 0xFF) }
+                    addLog("[DEBUG] EROFS magic di 0x400: $erofsHex")
+                } catch (e: Exception) {
+                    addLog("[DEBUG] Gagal baca header: ${e.message}")
+                }
+            }
+            
             val fsType = detectFilesystemType(workingFile)
             addLog("[INFO] Terdeteksi filesystem: $fsType")
 
@@ -461,6 +485,30 @@ class AFFTService(private val context: Context) {
             } else {
                 addLog("[FAIL] debugfs rdump gagal (exit ${debugfsResult.exitCode})")
                 debugfsResult.errorOutput.forEach { addLog("[ERROR] $it") }
+                
+                // Check if error is "Bad magic" - try EROFS as fallback
+                val badMagicError = debugfsResult.errorOutput.any { 
+                    it.contains("Bad magic number") || it.contains("Filesystem not open")
+                }
+                if (badMagicError) {
+                    addLog("[INFO] Bad magic number! File mungkin EROFS, coba extract.erofs...")
+                    val erofsTool = BinaryManager.getBinaryPath(context, "extract.erofs")
+                    if (erofsTool != null) {
+                        val erofsResult = ShellExecutor.executeWithProgress(
+                            command = listOf(erofsTool, "-i", workingFile.absolutePath, "-x", "-o", outDir.absolutePath, "-f"),
+                            workingDir = getTempDir(),
+                            onProgress = { addLog(it) }
+                        )
+                        if (erofsResult.exitCode == 0) {
+                            val fileCount = outDir.walkTopDown().count() - 1
+                            addLog("[OK] EROFS filesystem terekstrak! ($fileCount item)")
+                            updateProgress("Ekstrak EROFS selesai! $fileCount item")
+                            return OperationResult(true, "Extract Filesystem",
+                                "EROFS extracted ($fileCount items)", outDir.absolutePath)
+                        }
+                        addLog("[INFO] extract.erofs juga gagal")
+                    }
+                }
                 
                 if (workingFile != inputFile) {
                     addLog("[INFO] Mencoba debugfs dengan file raw...")
@@ -839,59 +887,50 @@ class AFFTService(private val context: Context) {
             var result: OperationResult = OperationResult(true, "Export All", "")
             try {
                 updateProgress("Mengekspor hasil kerja ke Downloads/AFFT/...")
-                val downloadsDir = File("/storage/emulated/0/Download/AFFT")
-                if (!downloadsDir.exists()) {
-                    downloadsDir.mkdirs()
-                    addLog("[INFO] Created Downloads/AFFT/")
-                }
                 val tempDir = getTempDir()
-                if (tempDir.exists()) {
-                    val subdirsToCopy = listOf("payload", "img", "repacked", "boot_out", "contents", "logs")
-                    var copiedCount = 0
-                    for (subdir in subdirsToCopy) {
-                        val src = File(tempDir, subdir)
-                        if (src.exists() && src.isDirectory) {
-                            val files = src.listFiles()
-                            if (!files.isNullOrEmpty()) {
-                                val dest = File(downloadsDir, subdir)
-                                if (dest.exists()) dest.deleteRecursively()
-                                src.copyRecursively(dest, overwrite = true)
+                if (!tempDir.exists()) {
+                    return@withContext OperationResult(false, "Export All", "Folder temp belum ada")
+                }
+
+                val subdirsToCopy = listOf("payload", "img", "repacked", "boot_out", "contents", "logs")
+                var copiedCount = 0
+                for (subdir in subdirsToCopy) {
+                    val src = File(tempDir, subdir)
+                    if (src.exists() && src.isDirectory) {
+                        val files = src.listFiles()
+                        if (!files.isNullOrEmpty()) {
+                            if (exportDirectoryToDownloads(src, subdir)) {
                                 copiedCount++
-                                addLog("  Exported: $subdir/ (${files.size} items)")
-                            } else {
-                                addLog("  [INFO] $subdir/ is empty, skipping")
                             }
                         } else {
-                            addLog("  [INFO] $subdir/ does not exist, skipping")
+                            addLog("  [INFO] $subdir/ is empty, skipping")
                         }
-                    }
-
-                    // Also copy input/ if not empty
-                    val inputDir = getInputDir()
-                    if (inputDir.exists()) {
-                        val inputFiles = inputDir.listFiles()
-                        if (!inputFiles.isNullOrEmpty()) {
-                            val destInput = File(downloadsDir, "input")
-                            if (destInput.exists()) destInput.deleteRecursively()
-                            inputDir.copyRecursively(destInput, overwrite = true)
-                            copiedCount++
-                            addLog("  Exported: input/ (${inputFiles.size} items)")
-                        }
-                    }
-
-                    if (copiedCount > 0) {
-                        addLog("[OK] Hasil kerja diekspor ke Downloads/AFFT/")
-                        updateProgress("Ekspor selesai! $copiedCount folder(s) exported")
-                        result = OperationResult(true, "Export All",
-                            "Diekspor ke Downloads/AFFT/ ($copiedCount folders)",
-                            downloadsDir.absolutePath)
                     } else {
-                        addLog("[INFO] Tidak ada data untuk diekspor")
-                        updateProgress("Tidak ada data untuk diekspor")
-                        result = OperationResult(true, "Export All", "Tidak ada data untuk diekspor")
+                        addLog("  [INFO] $subdir/ does not exist, skipping")
                     }
+                }
+
+                // Also export input/ if not empty
+                val inputDir = getInputDir()
+                if (inputDir.exists()) {
+                    val inputFiles = inputDir.listFiles()
+                    if (!inputFiles.isNullOrEmpty()) {
+                        if (exportDirectoryToDownloads(inputDir, "input")) {
+                            copiedCount++
+                        }
+                    }
+                }
+
+                if (copiedCount > 0) {
+                    addLog("[OK] Hasil kerja diekspor ke Downloads/AFFT/ ($copiedCount folders)")
+                    updateProgress("Ekspor selesai! $copiedCount folder(s) exported")
+                    result = OperationResult(true, "Export All",
+                        "Diekspor ke Downloads/AFFT/ ($copiedCount folders)",
+                        "/storage/emulated/0/Download/AFFT")
                 } else {
-                    result = OperationResult(false, "Export All", "Folder temp belum ada")
+                    addLog("[INFO] Tidak ada data untuk diekspor")
+                    updateProgress("Tidak ada data untuk diekspor")
+                    result = OperationResult(true, "Export All", "Tidak ada data untuk diekspor")
                 }
             } catch (e: Exception) {
                 addLog("[ERROR] Export gagal: ${e.message}")
@@ -911,11 +950,6 @@ class AFFTService(private val context: Context) {
             var result: OperationResult = OperationResult(true, "Export Selected", "")
             try {
                 updateProgress("Mengekspor folder terpilih ke Downloads/AFFT/...")
-                val downloadsDir = File("/storage/emulated/0/Download/AFFT")
-                if (!downloadsDir.exists()) {
-                    downloadsDir.mkdirs()
-                    addLog("[INFO] Created Downloads/AFFT/")
-                }
                 val tempDir = getTempDir()
                 if (!tempDir.exists()) {
                     return@withContext OperationResult(false, "Export Selected", "Folder temp belum ada")
@@ -929,11 +963,9 @@ class AFFTService(private val context: Context) {
                             if (inputDir.exists()) {
                                 val inputFiles = inputDir.listFiles()
                                 if (!inputFiles.isNullOrEmpty()) {
-                                    val dest = File(downloadsDir, "input")
-                                    if (dest.exists()) dest.deleteRecursively()
-                                    inputDir.copyRecursively(dest, overwrite = true)
-                                    copiedCount++
-                                    addLog("  Exported: input/ (${inputFiles.size} items)")
+                                    if (exportDirectoryToDownloads(inputDir, "input")) {
+                                        copiedCount++
+                                    }
                                 } else {
                                     addLog("  [INFO] input/ is empty, skipping")
                                 }
@@ -944,11 +976,9 @@ class AFFTService(private val context: Context) {
                             if (src.exists() && src.isDirectory) {
                                 val files = src.listFiles()
                                 if (!files.isNullOrEmpty()) {
-                                    val dest = File(downloadsDir, subdir)
-                                    if (dest.exists()) dest.deleteRecursively()
-                                    src.copyRecursively(dest, overwrite = true)
-                                    copiedCount++
-                                    addLog("  Exported: $subdir/ (${files.size} items)")
+                                    if (exportDirectoryToDownloads(src, subdir)) {
+                                        copiedCount++
+                                    }
                                 } else {
                                     addLog("  [INFO] $subdir/ is empty, skipping")
                                 }
@@ -964,7 +994,7 @@ class AFFTService(private val context: Context) {
                     updateProgress("Ekspor selesai! $copiedCount folder(s) exported")
                     result = OperationResult(true, "Export Selected",
                         "Diekspor ke Downloads/AFFT/ ($copiedCount folders)",
-                        downloadsDir.absolutePath)
+                        "/storage/emulated/0/Download/AFFT")
                 } else {
                     addLog("[INFO] Tidak ada data untuk diekspor")
                     updateProgress("Tidak ada data untuk diekspor")
@@ -977,6 +1007,75 @@ class AFFTService(private val context: Context) {
                 _isRunning.value = false
             }
             result
+        }
+    }
+
+    private fun saveFileToDownloadsMediaStore(sourceFile: File, relativePath: String, fileName: String): Boolean {
+        // MediaStore.Downloads requires Android 10+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            addLog("[INFO] MediaStore tidak tersedia (Android < 10)")
+            return false
+        }
+        return try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.RELATIVE_PATH, "Download/AFFT/$relativePath")
+                put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return false
+            resolver.openOutputStream(uri)?.use { outputStream ->
+                sourceFile.inputStream().use { input -> input.copyTo(outputStream) }
+            }
+            addLog("[OK] Disimpan via MediaStore: Download/AFFT/$relativePath/$fileName")
+            true
+        } catch (e: Exception) {
+            addLog("[ERROR] MediaStore gagal: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun exportDirectoryToDownloads(srcDir: File, subdirName: String): Boolean {
+        return try {
+            val downloadsDir = File("/storage/emulated/0/Download/AFFT")
+            // Try direct path first
+            try {
+                if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                val dest = File(downloadsDir, subdirName)
+                if (dest.exists()) dest.deleteRecursively()
+                srcDir.copyRecursively(dest, overwrite = true)
+                if (dest.exists() && dest.listFiles()?.isNotEmpty() == true) {
+                    addLog("  Exported: $subdirName/")
+                    return true
+                }
+            } catch (e: Exception) {
+                if (debugMode) addLog("[DEBUG] Direct export gagal: ${e.message}, fallback MediaStore")
+            }
+            // Fallback: MediaStore
+            addLog("  [INFO] Mencoba via MediaStore untuk $subdirName...")
+            var successCount = 0
+            val files = srcDir.listFiles() ?: emptyArray()
+            for (file in files) {
+                if (file.isFile) {
+                    if (saveFileToDownloadsMediaStore(file, subdirName, file.name)) successCount++
+                } else if (file.isDirectory) {
+                    val nestedFiles = file.listFiles() ?: emptyArray()
+                    for (nf in nestedFiles) {
+                        if (saveFileToDownloadsMediaStore(nf, "${subdirName}/${file.name}", nf.name)) successCount++
+                    }
+                }
+            }
+            if (successCount > 0) {
+                addLog("  Exported (MediaStore): $subdirName/ ($successCount files)")
+                true
+            } else {
+                addLog("  [ERROR] Gagal mengekspor $subdirName/")
+                false
+            }
+        } catch (e: Exception) {
+            addLog("  [ERROR] Export $subdirName gagal: ${e.message}")
+            false
         }
     }
 

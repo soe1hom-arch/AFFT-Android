@@ -140,6 +140,7 @@ fun FileManagerScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .heightIn(min = 250.dp)
         ) {
             if (files.isEmpty()) {
                 Box(

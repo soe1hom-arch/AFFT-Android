@@ -217,6 +217,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var showCleanConfirmDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var exportOptions by remember { mutableStateOf(
         mapOf(
@@ -302,7 +303,7 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
-                onClick = { afftService.cleanOutput() },
+                onClick = { showCleanConfirmDialog = true },
                 modifier = Modifier.weight(1f),
                 enabled = !isRunning
             ) {
@@ -381,6 +382,54 @@ fun HomeScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showExportDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        // Clean confirmation dialog
+        if (showCleanConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showCleanConfirmDialog = false },
+                icon = {
+                    Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error)
+                },
+                title = { Text("Konfirmasi Clean") },
+                text = {
+                    Column {
+                        Text("Fungsi Clean akan menghapus SEMUA hasil ekstraksi dan repack di folder temp/")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Folder yang akan dibersihkan: img, contents, repacked, payload, boot, boot_out",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "File di folder input/ dan Downloads/AFFT/ TIDAK akan terhapus.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCleanConfirmDialog = false
+                            afftService.cleanOutput()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Ya, Clean Sekarang")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCleanConfirmDialog = false }) {
                         Text("Batal")
                     }
                 }
