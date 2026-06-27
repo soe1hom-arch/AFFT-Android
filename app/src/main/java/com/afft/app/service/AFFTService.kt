@@ -564,6 +564,16 @@ class AFFTService(private val context: Context) {
                 } else {
                     addLog("[WARN] Konversi sparse gagal, menggunakan file asli")
                     convertResult.errorOutput.forEach { addLog("[ERROR] $it") }
+                    // Periksa apakah simg2img gagal karena "CANNOT LINK EXECUTABLE"
+                    val linkError = convertResult.errorOutput.any {
+                        it.contains("CANNOT LINK", ignoreCase = true) ||
+                        it.contains("executable", ignoreCase = true) ||
+                        it.contains("denied", ignoreCase = true)
+                    }
+                    if (linkError) {
+                        addLog("[WARN] simg2img terblokir oleh SELinux/noexec Android 14+")
+                        addLog("[WARN] Mencoba langsung extract.erofs pada sparse image...")
+                    }
                 }
             } else if (simg2imgBin == null) {
                 addLog("[INFO] simg2img tidak tersedia, gunakan file langsung")
@@ -812,28 +822,33 @@ class AFFTService(private val context: Context) {
             val contentsDir = File(getTempDir(), "contents")
             val srcDir = File(contentsDir, dirName)
             if (!srcDir.exists()) {
-                return OperationResult(false, "Repack Filesystem",
-                    "Directory not found: $dirName")
+                return OperationResult(
+                    false, "Repack Filesystem",
+                    "Directory not found: $dirName"
+                )
             }
 
             val repackedDir = File(getTempDir(), "repacked")
             repackedDir.mkdirs()
             val outputFile = File(repackedDir, "${dirName}_repack.img")
+            if (outputFile.exists()) outputFile.delete()
 
-            // Try make_ext4fs first (for ext4), fallback to mkfs.erofs (for erofs)
+            // Cari binary dan file_contexts
             val makeExt4 = BinaryManager.getBinaryPath(context, "make_ext4fs")
             val mkfsErofs = BinaryManager.getBinaryPath(context, "mkfs.erofs")
+            val fileContextsPath = findFileContexts(contentsDir, dirName)
 
             updateProgress("Repacking filesystem...")
 
             if (makeExt4 != null) {
                 addLog("Running: make_ext4fs -s ${dirName}_repack.img $dirName/")
-                // Estimate partition size (1.25x source dir size, rounded up)
                 val sizeBytes = calculateDirSize(srcDir)
                 val partitionSize = ((sizeBytes * 1.25).toLong() + 4095) / 4096 * 4096
                 val result = ShellExecutor.executeWithProgress(
-                    command = listOf(makeExt4, "-s", "-l", partitionSize.toString(),
-                        outputFile.absolutePath, srcDir.absolutePath),
+                    command = listOf(
+                        makeExt4, "-s", "-l", partitionSize.toString(),
+                        outputFile.absolutePath, srcDir.absolutePath
+                    ),
                     workingDir = getTempDir(),
                     onProgress = { addLog(it) }
                 )
@@ -845,22 +860,33 @@ class AFFTService(private val context: Context) {
                         outputFile.absolutePath)
                 } else {
                     addLog("[FAIL] make_ext4fs failed (exit ${result.exitCode})")
+                    result.errorOutput.forEach { addLog("[ERROR] $it") }
                     if (mkfsErofs != null) {
-                        addLog("[INFO] Mencoba mkfs.erofs...")
-                        val result2 = ShellExecutor.executeWithProgress(
-                            command = listOf(mkfsErofs, outputFile.absolutePath, srcDir.absolutePath),
-                            workingDir = getTempDir(),
-                            onProgress = { addLog(it) }
+                        addLog("[INFO] Mencoba mkfs.erofs dengan kompresi lz4hc...")
+                        if (outputFile.exists()) outputFile.delete()
+                        var erofsOk = repackErofs(
+                            mkfsErofs, outputFile, srcDir, fileContextsPath, "lz4hc,9"
                         )
-                        if (result2.exitCode == 0 && outputFile.exists()) {
+                        if (erofsOk) {
                             addLog("[OK] Repacked EROFS: ${outputFile.name}")
                             copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
                             OperationResult(true, "Repack Filesystem", "Repack EROFS selesai",
                                 outputFile.absolutePath)
                         } else {
-                            addLog("[FAIL] mkfs.erofs also failed (exit ${result2.exitCode})")
-                            OperationResult(false, "Repack Filesystem",
-                                "make_ext4fs & mkfs.erofs both failed")
+                            addLog("[INFO] lz4hc gagal, mencoba tanpa kompresi...")
+                            if (outputFile.exists()) outputFile.delete()
+                            erofsOk = repackErofs(
+                                mkfsErofs, outputFile, srcDir, fileContextsPath, "none"
+                            )
+                            if (erofsOk) {
+                                addLog("[OK] Repacked EROFS (uncompressed): ${outputFile.name}")
+                                copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                                OperationResult(true, "Repack Filesystem",
+                                    "Repack EROFS (uncompressed) selesai", outputFile.absolutePath)
+                            } else {
+                                OperationResult(false, "Repack Filesystem",
+                                    "make_ext4fs & mkfs.erofs (lz4hc+none) all failed")
+                            }
                         }
                     } else {
                         OperationResult(false, "Repack Filesystem",
@@ -868,21 +894,31 @@ class AFFTService(private val context: Context) {
                     }
                 }
             } else if (mkfsErofs != null) {
-                addLog("Running: mkfs.erofs ${dirName}_repack.img $dirName/")
-                val result = ShellExecutor.executeWithProgress(
-                    command = listOf(mkfsErofs, outputFile.absolutePath, srcDir.absolutePath),
-                    workingDir = getTempDir(),
-                    onProgress = { addLog(it) }
+                addLog("Running: mkfs.erofs -z lz4hc,9 -C 4096 ${dirName}_repack.img $dirName/")
+                var erofsOk = repackErofs(
+                    mkfsErofs, outputFile, srcDir, fileContextsPath, "lz4hc,9"
                 )
-                if (result.exitCode == 0 && outputFile.exists()) {
-                    addLog("[OK] Repacked EROFS: ${outputFile.name}")
+                if (erofsOk) {
+                    addLog("[OK] Repacked EROFS: ${outputFile.name} (${outputFile.length()} bytes)")
                     copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
                     OperationResult(true, "Repack Filesystem", "Repack EROFS selesai",
                         outputFile.absolutePath)
                 } else {
-                    addLog("[FAIL] mkfs.erofs failed (exit ${result.exitCode})")
-                    OperationResult(false, "Repack Filesystem",
-                        "mkfs.erofs failed (exit ${result.exitCode})")
+                    addLog("[INFO] lz4hc gagal, mencoba tanpa kompresi...")
+                    if (outputFile.exists()) outputFile.delete()
+                    erofsOk = repackErofs(
+                        mkfsErofs, outputFile, srcDir, fileContextsPath, "none"
+                    )
+                    if (erofsOk) {
+                        addLog("[OK] Repacked EROFS (uncompressed): ${outputFile.name}")
+                        copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                        OperationResult(true, "Repack Filesystem",
+                            "Repack EROFS (uncompressed) selesai", outputFile.absolutePath)
+                    } else {
+                        addLog("[FAIL] mkfs.erofs lz4hc dan none keduanya gagal")
+                        OperationResult(false, "Repack Filesystem",
+                            "mkfs.erofs failed (lz4hc and uncompressed)")
+                    }
                 }
             } else {
                 addLog("[FAIL] Tidak ada binary repack (make_ext4fs, mkfs.erofs)")
@@ -903,6 +939,75 @@ class AFFTService(private val context: Context) {
         } catch (e: Exception) {
             16777216L // 16MB default
         }
+    }
+
+    /**
+     * Helper untuk menjalankan mkfs.erofs dengan parameter kompresi spesifik.
+     * Mengikuti standar Google:
+     *   -z lz4hc,9 -C 4096 untuk kompresi tinggi (standar Android modern)
+     *   -z none untuk uncompressed EROFS
+     *   --file-contexts=<path> untuk menyertakan konteks keamanan
+     */
+    private suspend fun repackErofs(
+        mkfsErofs: String,
+        outputFile: File,
+        srcDir: File,
+        fileContextsPath: String?,
+        compression: String
+    ): Boolean {
+        if (outputFile.exists()) outputFile.delete()
+
+        val cmdArgs = mutableListOf(
+            mkfsErofs, "-z", compression, "-C", "4096"
+        )
+        if (fileContextsPath != null) {
+            cmdArgs.add("--file-contexts=$fileContextsPath")
+        }
+        cmdArgs.add(outputFile.absolutePath)
+        cmdArgs.add(srcDir.absolutePath)
+
+        val compressionLabel = when (compression) {
+            "lz4hc,9" -> "lz4hc level 9"
+            "none" -> "tanpa kompresi"
+            else -> compression
+        }
+        addLog("[INFO] Menjalankan mkfs.erofs ($compressionLabel) dengan flags: -z $compression -C 4096${if (fileContextsPath != null) " --file-contexts=$fileContextsPath" else ""}")
+
+        val result = ShellExecutor.executeWithProgress(
+            command = cmdArgs,
+            workingDir = getTempDir(),
+            onProgress = { addLog(it) }
+        )
+
+        if (result.exitCode == 0 && outputFile.exists() && outputFile.length() > 0) {
+            addLog("[OK] mkfs.erofs ($compressionLabel) berhasil: ${outputFile.length()} bytes")
+            return true
+        }
+        addLog("[FAIL] mkfs.erofs ($compressionLabel) gagal (exit ${result.exitCode})")
+        result.errorOutput.forEach { addLog("[ERROR] $it") }
+        return false
+    }
+
+    /**
+     * Mencari file file_contexts di direktori hasil ekstraksi.
+     * file_contexts diperlukan untuk menjaga hak akses (SELinux contexts)
+     * saat me-repack dan mem-flash ke perangkat.
+     */
+    private fun findFileContexts(contentsDir: File, dirName: String): String? {
+        val candidates = listOf(
+            File(contentsDir, "file_contexts"),
+            File(contentsDir, "config/file_contexts"),
+            File(contentsDir.parentFile, "file_contexts"),
+            File(contentsDir, "${dirName}/file_contexts")
+        )
+        for (f in candidates) {
+            if (f.exists() && f.isFile) {
+                addLog("[INFO] Ditemukan file_contexts: ${f.absolutePath}")
+                return f.absolutePath
+            }
+        }
+        addLog("[INFO] file_contexts tidak ditemukan, repo tanpa konteks keamanan")
+        return null
     }
 
     suspend fun unpackBoot(inputUri: Uri, bootType: String): OperationResult {
