@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import android.os.StatFs
 
 class AFFTService(private val context: Context) {
 
@@ -52,6 +53,109 @@ class AFFTService(private val context: Context) {
         _progressMessage.value = ""
     }
 
+
+    fun getFreeSpace(path: String): Long {
+        return try {
+            val stat = StatFs(path)
+            stat.availableBytes
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    fun checkStorageSpace(fileSize: Long, destPath: String): Boolean {
+        val free = getFreeSpace(destPath)
+        if (free <= 0) return true // can't check, allow
+        if (fileSize > free) {
+            addLog("[ERROR] Ruang penyimpanan tidak cukup! Butuh ${formatFileSizePublic(fileSize)}, tersedia ${formatFileSizePublic(free)}")
+            return false
+        }
+        return true
+    }
+
+    fun deleteFileWithSafety(file: File): Boolean {
+        return try {
+            val workDir = getWorkDir()
+            val canonWork = workDir.canonicalPath
+            val canonFile = file.canonicalPath
+            // Only allow deletion within work directory
+            if (!canonFile.startsWith(canonWork + File.separator)) {
+                addLog("[ERROR] Safety abort: file di luar work directory!")
+                return false
+            }
+            if (file.isDirectory) {
+                file.deleteRecursively()
+            } else {
+                file.delete()
+            }
+            addLog("[OK] Dihapus: ${file.name}")
+            true
+        } catch (e: Exception) {
+            addLog("[ERROR] Gagal menghapus: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun copyFileTo(src: File, destDir: File): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                if (!checkStorageSpace(src.length(), destDir.absolutePath)) {
+                    return@withContext false
+                }
+                if (!destDir.exists()) destDir.mkdirs()
+                val dest = File(destDir, src.name)
+                var i = 1
+                while (dest.exists()) {
+                    val newName = "${src.nameWithoutExtension}_$i.${src.extension}"
+                    val finalDest = File(destDir, if (src.extension.isNotEmpty()) newName else "${src.name}_$i")
+                    if (!finalDest.exists()) break
+                    i++
+                }
+                src.copyTo(dest, overwrite = false)
+                addLog("[OK] Disalin: ${src.name} → ${destDir.name}/")
+                true
+            } catch (e: Exception) {
+                addLog("[ERROR] Gagal menyalin: ${e.message}")
+                false
+            }
+        }
+    }
+
+    suspend fun moveFileTo(src: File, destDir: File): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                if (!checkStorageSpace(src.length(), destDir.absolutePath)) {
+                    return@withContext false
+                }
+                if (!destDir.exists()) destDir.mkdirs()
+                val dest = File(destDir, src.name)
+                var moved = src.renameTo(dest)
+                if (!moved) {
+                    src.copyTo(dest, overwrite = true)
+                    src.delete()
+                    moved = true
+                }
+                addLog("[OK] Dipindah: ${src.name} → ${destDir.name}/")
+                true
+            } catch (e: Exception) {
+                addLog("[ERROR] Gagal memindah: ${e.message}")
+                false
+            }
+        }
+    }
+
+    suspend fun pickAndCopyToInput(uri: Uri): File? {
+        return copyPickedFileToInput(uri)
+    }
+
+    private fun formatFileSizePublic(size: Long): String {
+        return when {
+            size < 1024 -> "$size B"
+            size < 1024 * 1024 -> "${size / 1024} KB"
+            size < 1024 * 1024 * 1024 -> "${"%.1f".format(size.toDouble() / (1024 * 1024))} MB"
+            else -> "${"%.2f".format(size.toDouble() / (1024 * 1024 * 1024))} GB"
+        }
+    }
     fun getWorkDir(): File {
         val baseDir = context.getExternalFilesDir(null)
         if (baseDir == null) {

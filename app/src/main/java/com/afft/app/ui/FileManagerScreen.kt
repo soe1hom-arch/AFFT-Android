@@ -1,6 +1,10 @@
 package com.afft.app.ui
 
-import androidx.compose.foundation.clickable
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,35 +14,91 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.afft.app.service.AFFTService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FileManagerScreen(
     afftService: AFFTService,
     logs: List<String>,
     isRunning: Boolean
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var currentDir by remember { mutableStateOf<File?>(null) }
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var pathHistory by remember { mutableStateOf<List<File>>(emptyList()) }
     var showSize by remember { mutableStateOf(false) }
+    var selectedFiles by remember { mutableStateOf<Set<File>>(emptySet()) }
+    var selectMode by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showCopyDestDialog by remember { mutableStateOf(false) }
+    var showMoveDestDialog by remember { mutableStateOf(false) }
+    var operationInProgress by remember { mutableStateOf(false) }
+    var toastMessage by remember { mutableStateOf<String?>(null) }
 
     val workDir = afftService.getWorkDir()
     val tempDir = afftService.getTempDir()
     val inputDir = afftService.getInputDir()
     val downloadDir = File("/storage/emulated/0/Download/AFFT")
+    val publicDirs = listOf(
+        "Downloads" to File("/storage/emulated/0/Download"),
+        "Documents" to File("/storage/emulated/0/Documents"),
+        "AFFT Export" to downloadDir
+    )
+
+    // Show toast
+    LaunchedEffect(toastMessage) {
+        toastMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            toastMessage = null
+        }
+    }
+
+    // File picker for importing from external storage
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                operationInProgress = true
+                val result = afftService.pickAndCopyToInput(uri)
+                operationInProgress = false
+                if (result != null) {
+                    toastMessage = "File diimpor: ${result.name}"
+                    refreshFiles(currentDir ?: inputDir)
+                } else {
+                    toastMessage = "Gagal mengimpor file"
+                }
+            }
+        }
+    }
 
     fun refreshFiles(dir: File) {
         currentDir = dir
         files = dir.listFiles()?.sortedWith(
             compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }
         ) ?: emptyList()
+        selectedFiles = emptySet()
+        selectMode = false
+    }
+
+    fun toggleSelectFile(file: File) {
+        selectedFiles = if (selectedFiles.contains(file)) {
+            selectedFiles - file
+        } else {
+            selectedFiles + file
+        }
+        selectMode = selectedFiles.isNotEmpty()
     }
 
     LaunchedEffect(Unit) {
@@ -48,28 +108,36 @@ fun FileManagerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(12.dp)
     ) {
-        Text(
-            "File Manager",
-            style = MaterialTheme.typography.titleLarge,
-            fontFamily = FontFamily.Monospace
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            "Browse extracted files and folders",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Path bar & quick shortcuts
+        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Back button
+            Text(
+                "File Manager",
+                style = MaterialTheme.typography.titleLarge,
+                fontFamily = FontFamily.Monospace
+            )
+            if (selectMode) {
+                TextButton(onClick = {
+                    selectedFiles = emptySet()
+                    selectMode = false
+                }) {
+                    Text("Batal", fontSize = 12.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Path bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             if (pathHistory.isNotEmpty()) {
                 IconButton(onClick = {
                     val prev = pathHistory.last()
@@ -79,46 +147,48 @@ fun FileManagerScreen(
                     Icon(Icons.Default.ArrowBack, "Back")
                 }
             }
-
-            // Current path
             Text(
                 text = currentDir?.absolutePath ?: "",
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.weight(1f).align(Alignment.CenterVertically)
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // Quick location buttons
+        // Quick location + Import button
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             AssistChip(
                 onClick = {
                     pathHistory = emptyList()
-                    refreshFiles(inputDir)
+                    refreshFiles(tempDir)
                 },
-                label = { Text("Temp", fontSize = 12.sp) },
-                leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) }
+                label = { Text("Temp", fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) }
             )
             AssistChip(
                 onClick = {
                     pathHistory = emptyList()
                     refreshFiles(workDir)
                 },
-                label = { Text("Work", fontSize = 12.sp) },
-                leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) }
+                label = { Text("Work", fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) }
             )
             AssistChip(
                 onClick = {
                     pathHistory = emptyList()
                     refreshFiles(inputDir)
                 },
-                label = { Text("Input", fontSize = 12.sp) },
-                leadingIcon = { Icon(Icons.Default.DriveFileMove, null, modifier = Modifier.size(16.dp)) }
+                label = { Text("Input", fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Default.DriveFileMove, null, modifier = Modifier.size(14.dp)) }
             )
             if (downloadDir.exists()) {
                 AssistChip(
@@ -126,53 +196,63 @@ fun FileManagerScreen(
                         pathHistory = emptyList()
                         refreshFiles(downloadDir)
                     },
-                    label = { Text("Download", fontSize = 12.sp) },
-                    leadingIcon = { Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp)) }
+                    label = { Text("DL", fontSize = 11.sp) },
+                    leadingIcon = { Icon(Icons.Default.Download, null, modifier = Modifier.size(14.dp)) }
                 )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            // Import button
+            IconButton(
+                onClick = { filePickerLauncher.launch("*/*") },
+                enabled = !operationInProgress
+            ) {
+                Icon(Icons.Default.FileOpen, "Import", modifier = Modifier.size(20.dp))
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // File list - always shows space for at least 5 items
+        // File list
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            LazyColumn(
-                modifier = Modifier.padding(4.dp)
-            ) {
-                // If files exist, show them
+            LazyColumn(modifier = Modifier.padding(2.dp)) {
                 if (files.isNotEmpty()) {
-                    items(files) { file ->
+                    items(files, key = { it.absolutePath }) { file ->
                         FileRow(
                             file = file,
+                            isSelected = selectedFiles.contains(file),
+                            selectMode = selectMode,
                             onClick = {
-                                if (file.isDirectory) {
+                                if (selectMode) {
+                                    toggleSelectFile(file)
+                                } else if (file.isDirectory) {
                                     pathHistory = pathHistory + (currentDir ?: tempDir)
                                     refreshFiles(file)
                                 }
+                            },
+                            onLongClick = {
+                                toggleSelectFile(file)
                             },
                             showSize = showSize
                         )
                     }
                 }
-                // Ensure minimum 5 rows visible (placeholder empty rows)
                 val minRows = 5
-                val currentRows = if (files.isNotEmpty()) files.size else 0
+                val currentRows = files.size
                 if (currentRows < minRows) {
                     items(minRows - currentRows) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp)
-                                .padding(vertical = 2.dp)
+                                .height(60.dp)
+                                .padding(vertical = 1.dp)
                         )
                     }
                 }
             }
-            // Show empty message overlay if no files
             if (files.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -180,64 +260,333 @@ fun FileManagerScreen(
                 ) {
                     Text(
                         "Folder kosong atau tidak ada file",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // Manager bar: info + action buttons
-        Row(
+        // Action bar
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            tonalElevation = 2.dp,
+            shape = MaterialTheme.shapes.medium
         ) {
-            Text(
-                "${files.size} item(s) | ${currentDir?.absolutePath ?: ""}",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { showSize = !showSize }) {
-                    Text(if (showSize) "Hide Size" else "Show Size", fontSize = 12.sp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left: info
+                Text(
+                    if (selectMode) "${selectedFiles.size} selected"
+                    else "${files.size} item(s)",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+
+                // Right: actions
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (selectMode) {
+                        // Select All
+                        IconButton(onClick = {
+                            selectedFiles = files.toSet()
+                            selectMode = true
+                        }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Default.SelectAll, "Select All", modifier = Modifier.size(18.dp))
+                        }
+                        // Copy
+                        IconButton(
+                            onClick = { showCopyDestDialog = true },
+                            modifier = Modifier.size(36.dp),
+                            enabled = !operationInProgress
+                        ) {
+                            Icon(Icons.Default.ContentCopy, "Copy", modifier = Modifier.size(18.dp))
+                        }
+                        // Move
+                        IconButton(
+                            onClick = { showMoveDestDialog = true },
+                            modifier = Modifier.size(36.dp),
+                            enabled = !operationInProgress
+                        ) {
+                            Icon(Icons.Default.DriveFileMove, "Move", modifier = Modifier.size(18.dp))
+                        }
+                        // Delete
+                        IconButton(
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier.size(36.dp),
+                            enabled = !operationInProgress
+                        ) {
+                            Icon(Icons.Default.Delete, "Delete",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error)
+                        }
+                    } else {
+                        // Default actions when no selection
+                        IconButton(
+                            onClick = { filePickerLauncher.launch("*/*") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.FileOpen, "Import", modifier = Modifier.size(18.dp))
+                        }
+                        TextButton(onClick = { showSize = !showSize }) {
+                            Text(if (showSize) "Size" else "Size", fontSize = 11.sp)
+                        }
+                    }
                 }
             }
         }
+    }
 
-        
+    // Delete confirmation dialog
+    if (showDeleteConfirm && selectedFiles.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            icon = { Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Hapus Permanen?") },
+            text = {
+                Column {
+                    Text(
+                        "Tindakan ini akan menghapus file/folder berikut secara permanen " +
+                        "dan tidak bisa dikembalikan. Lanjutkan?",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    selectedFiles.take(10).forEach { f ->
+                        Text(
+                            "• ${f.name}",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (selectedFiles.size > 10) {
+                        Text(
+                            "...dan ${selectedFiles.size - 10} lainnya",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        scope.launch {
+                            operationInProgress = true
+                            var ok = 0
+                            var fail = 0
+                            for (f in selectedFiles) {
+                                if (afftService.deleteFileWithSafety(f)) ok++
+                                else fail++
+                            }
+                            operationInProgress = false
+                            toastMessage = "Dihapus: $ok file, gagal: $fail"
+                            refreshFiles(currentDir ?: inputDir)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Hapus") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Batal") }
+            }
+        )
+    }
+
+    // Copy destination dialog
+    if (showCopyDestDialog && selectedFiles.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showCopyDestDialog = false },
+            title = { Text("Salin ke...") },
+            text = {
+                Column {
+                    Text("Pilih tujuan:", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            showCopyDestDialog = false
+                            scope.launch {
+                                operationInProgress = true
+                                var ok = 0
+                                for (f in selectedFiles) {
+                                    if (afftService.copyFileTo(f, downloadDir)) ok++
+                                }
+                                operationInProgress = false
+                                toastMessage = "Disalin ke Downloads: $ok file"
+                                refreshFiles(currentDir ?: inputDir)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("📁 Downloads/AFFT") }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            showCopyDestDialog = false
+                            scope.launch {
+                                operationInProgress = true
+                                var ok = 0
+                                for (f in selectedFiles) {
+                                    if (afftService.copyFileTo(f, inputDir)) ok++
+                                }
+                                operationInProgress = false
+                                toastMessage = "Disalin ke input/: $ok file"
+                                refreshFiles(currentDir ?: inputDir)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("📂 Input/ (workspace)") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCopyDestDialog = false }) { Text("Batal") }
+            }
+        )
+    }
+
+    // Move destination dialog
+    if (showMoveDestDialog && selectedFiles.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showMoveDestDialog = false },
+            title = { Text("Pindah ke...") },
+            text = {
+                Column {
+                    Text("Pilih tujuan:", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            showMoveDestDialog = false
+                            scope.launch {
+                                operationInProgress = true
+                                var ok = 0
+                                for (f in selectedFiles) {
+                                    if (afftService.moveFileTo(f, downloadDir)) ok++
+                                }
+                                operationInProgress = false
+                                toastMessage = "Dipindah ke Downloads: $ok file"
+                                refreshFiles(currentDir ?: inputDir)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("📁 Downloads/AFFT") }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            showMoveDestDialog = false
+                            scope.launch {
+                                operationInProgress = true
+                                var ok = 0
+                                for (f in selectedFiles) {
+                                    if (afftService.moveFileTo(f, inputDir)) ok++
+                                }
+                                operationInProgress = false
+                                toastMessage = "Dipindah ke input/: $ok file"
+                                refreshFiles(currentDir ?: inputDir)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("📂 Input/ (workspace)") }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    // Move to Downloads root
+                    Button(
+                        onClick = {
+                            showMoveDestDialog = false
+                            scope.launch {
+                                operationInProgress = true
+                                val dest = File("/storage/emulated/0/Download")
+                                var ok = 0
+                                for (f in selectedFiles) {
+                                    if (afftService.moveFileTo(f, dest)) ok++
+                                }
+                                operationInProgress = false
+                                toastMessage = "Dipindah ke Downloads: $ok file"
+                                refreshFiles(currentDir ?: inputDir)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("📁 Downloads/ (root)" ) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMoveDestDialog = false }) { Text("Batal") }
+            }
+        )
+    }
+
+    // Processing overlay
+    if (operationInProgress) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Memproses...", fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FileRow(
     file: File,
+    isSelected: Boolean,
+    selectMode: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     showSize: Boolean
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .padding(vertical = 2.dp)
-            .clickable(onClick = onClick),
+            .height(60.dp)
+            .padding(vertical = 1.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         colors = CardDefaults.cardColors(
-            containerColor = if (file.isDirectory)
-                MaterialTheme.colorScheme.surfaceVariant
-            else
-                MaterialTheme.colorScheme.surface
+            containerColor = when {
+                isSelected -> MaterialTheme.colorScheme.primaryContainer
+                file.isDirectory -> MaterialTheme.colorScheme.surfaceVariant
+                else -> MaterialTheme.colorScheme.surface
+            }
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Checkbox in select mode
+            if (selectMode || isSelected) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onLongClick() },
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             Icon(
                 when {
                     file.isDirectory -> Icons.Default.Folder
@@ -246,25 +595,24 @@ fun FileRow(
                     else -> Icons.Default.Description
                 },
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = if (file.isDirectory)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                modifier = Modifier.size(22.dp),
+                tint = if (file.isDirectory) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = file.name,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 15.sp,
-                    maxLines = 1
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (showSize && !file.isDirectory) {
                     Text(
                         text = formatFileSize(file.length()),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
