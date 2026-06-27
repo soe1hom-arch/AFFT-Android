@@ -1116,7 +1116,7 @@ class AFFTService(private val context: Context) {
                 }
             }
         }
-        if (successCount > 0) {
+        return if (successCount > 0) {
             addLog("  Exported (MediaStore): $relativePath/ ($successCount files)")
             true
         } else {
