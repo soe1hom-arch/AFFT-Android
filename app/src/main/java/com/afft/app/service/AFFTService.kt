@@ -1019,7 +1019,7 @@ class AFFTService(private val context: Context) {
         return try {
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                put(MediaStore.Downloads.RELATIVE_PATH, "Download/AFFT/$relativePath")
+                put(MediaStore.Downloads.RELATIVE_PATH, "AFFT/$relativePath")
                 put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
             }
             val resolver = context.contentResolver
@@ -1028,7 +1028,7 @@ class AFFTService(private val context: Context) {
             resolver.openOutputStream(uri)?.use { outputStream ->
                 sourceFile.inputStream().use { input -> input.copyTo(outputStream) }
             }
-            addLog("[OK] Disimpan via MediaStore: Download/AFFT/$relativePath/$fileName")
+            addLog("[OK] Disimpan via MediaStore: AFFT/$relativePath/$fileName")
             true
         } catch (e: Exception) {
             addLog("[ERROR] MediaStore gagal: ${e.message}")
@@ -1041,18 +1041,27 @@ class AFFTService(private val context: Context) {
             val downloadsDir = File("/storage/emulated/0/Download/AFFT")
             // Try direct path first
             try {
-                if (!downloadsDir.exists()) downloadsDir.mkdirs()
                 val dest = File(downloadsDir, subdirName)
-                if (dest.exists()) dest.deleteRecursively()
                 srcDir.copyRecursively(dest, overwrite = true)
-                if (dest.exists() && dest.listFiles()?.isNotEmpty() == true) {
-                    addLog("  Exported: $subdirName/")
-                    return true
+                if (dest.exists()) {
+                    val files = dest.listFiles()
+                    if (!files.isNullOrEmpty()) {
+                        addLog("  Exported: $subdirName/ (${files.size} items)")
+                        return true
+                    }
                 }
+                // dest is empty - clean up
+                if (dest.exists()) dest.deleteRecursively()
+                addLog("  [INFO] Direct copy empty, fallback MediaStore...")
             } catch (e: Exception) {
-                if (debugMode) addLog("[DEBUG] Direct export gagal: ${e.message}, fallback MediaStore")
+                // Clean up partial dest
+                try {
+                    val dest = File(downloadsDir, subdirName)
+                    if (dest.exists()) dest.deleteRecursively()
+                } catch (_: Exception) {}
+                if (debugMode) addLog("[DEBUG] Direct export gagal: ${e.message}")
             }
-            // Fallback: MediaStore
+            // Fallback: MediaStore for each file
             addLog("  [INFO] Mencoba via MediaStore untuk $subdirName...")
             var successCount = 0
             val files = srcDir.listFiles() ?: emptyArray()
