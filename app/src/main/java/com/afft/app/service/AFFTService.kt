@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
-import android.os.StatFs
 
 class AFFTService(private val context: Context) {
 
@@ -56,8 +55,9 @@ class AFFTService(private val context: Context) {
 
     fun getFreeSpace(path: String): Long {
         return try {
-            val stat = StatFs(path)
-            stat.availableBytes
+            val dir = File(path)
+            if (!dir.exists()) dir.mkdirs()
+            dir.freeSpace
         } catch (e: Exception) {
             -1L
         }

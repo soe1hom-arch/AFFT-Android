@@ -64,13 +64,16 @@ fun FileManagerScreen(
         }
     }
 
-    fun refreshFiles(dir: File) {
-        currentDir = dir
-        files = dir.listFiles()?.sortedWith(
+    suspend fun refreshFiles(dir: File) = withContext(Dispatchers.IO) {
+        val list = dir.listFiles()?.sortedWith(
             compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }
         ) ?: emptyList()
-        selectedFiles = emptySet()
-        selectMode = false
+        withContext(Dispatchers.Main) {
+            currentDir = dir
+            files = list
+            selectedFiles = emptySet()
+            selectMode = false
+        }
     }
 
     // File picker for importing from external storage
@@ -140,9 +143,11 @@ fun FileManagerScreen(
         ) {
             if (pathHistory.isNotEmpty()) {
                 IconButton(onClick = {
-                    val prev = pathHistory.last()
-                    pathHistory = pathHistory.dropLast(1)
-                    refreshFiles(prev)
+                    scope.launch {
+                        val prev = pathHistory.last()
+                        pathHistory = pathHistory.dropLast(1)
+                        refreshFiles(prev)
+                    }
                 }) {
                     Icon(Icons.Default.ArrowBack, "Back")
                 }
@@ -168,24 +173,30 @@ fun FileManagerScreen(
         ) {
             AssistChip(
                 onClick = {
-                    pathHistory = emptyList()
-                    refreshFiles(tempDir)
+                    scope.launch {
+                        pathHistory = emptyList()
+                        refreshFiles(tempDir)
+                    }
                 },
                 label = { Text("Temp", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) }
             )
             AssistChip(
                 onClick = {
-                    pathHistory = emptyList()
-                    refreshFiles(workDir)
+                    scope.launch {
+                        pathHistory = emptyList()
+                        refreshFiles(workDir)
+                    }
                 },
                 label = { Text("Work", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) }
             )
             AssistChip(
                 onClick = {
-                    pathHistory = emptyList()
-                    refreshFiles(inputDir)
+                    scope.launch {
+                        pathHistory = emptyList()
+                        refreshFiles(inputDir)
+                    }
                 },
                 label = { Text("Input", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.DriveFileMove, null, modifier = Modifier.size(14.dp)) }
@@ -193,8 +204,10 @@ fun FileManagerScreen(
             if (downloadDir.exists()) {
                 AssistChip(
                     onClick = {
-                        pathHistory = emptyList()
-                        refreshFiles(downloadDir)
+                        scope.launch {
+                            pathHistory = emptyList()
+                            refreshFiles(downloadDir)
+                        }
                     },
                     label = { Text("DL", fontSize = 11.sp) },
                     leadingIcon = { Icon(Icons.Default.Download, null, modifier = Modifier.size(14.dp)) }
@@ -229,8 +242,10 @@ fun FileManagerScreen(
                                 if (selectMode) {
                                     toggleSelectFile(file)
                                 } else if (file.isDirectory) {
-                                    pathHistory = pathHistory + (currentDir ?: tempDir)
-                                    refreshFiles(file)
+                                    scope.launch {
+                                        pathHistory = pathHistory + (currentDir ?: tempDir)
+                                        refreshFiles(file)
+                                    }
                                 }
                             },
                             onLongClick = {
