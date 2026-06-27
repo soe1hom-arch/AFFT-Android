@@ -521,10 +521,10 @@ fun FileManagerScreen(
         )
     }
 
-    // Processing overlay
+    // Processing overlay - fixed card di bawah action bar
     if (operationInProgress) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
@@ -533,12 +533,12 @@ fun FileManagerScreen(
                 )
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Memproses...", fontFamily = FontFamily.Monospace)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Memproses...", fontFamily = FontFamily.Monospace, fontSize = 14.sp)
                 }
             }
         }

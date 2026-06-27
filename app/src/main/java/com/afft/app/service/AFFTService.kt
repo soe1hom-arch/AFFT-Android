@@ -73,26 +73,40 @@ class AFFTService(private val context: Context) {
         return true
     }
 
-    fun deleteFileWithSafety(file: File): Boolean {
-        return try {
-            val workDir = getWorkDir()
-            val canonWork = workDir.canonicalPath
-            val canonFile = file.canonicalPath
-            // Only allow deletion within work directory
-            if (!canonFile.startsWith(canonWork + File.separator)) {
-                addLog("[ERROR] Safety abort: file di luar work directory!")
-                return false
+    suspend fun deleteFileWithSafety(file: File): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val workDir = getWorkDir()
+                val canonWork = workDir.canonicalPath
+                val canonFile = file.canonicalPath
+                val downloadAFFT = File("/storage/emulated/0/Download/AFFT")
+                val canonDl = downloadAFFT.canonicalPath
+
+                // Izinkan hapus di workDir ATAU di Downloads/AFFT
+                val allowed = canonFile.startsWith(canonWork + File.separator) ||
+                              canonFile.startsWith(canonDl + File.separator)
+                if (!allowed) {
+                    addLog("[ERROR] Safety abort: ${file.name} di luar work dir & Downloads/AFFT!")
+                    return@withContext false
+                }
+
+                if (file.isDirectory) {
+                    file.deleteRecursively()
+                } else {
+                    file.delete()
+                }
+
+                if (file.exists()) {
+                    addLog("[ERROR] Gagal menghapus: ${file.name} (masih ada)")
+                    false
+                } else {
+                    addLog("[OK] Dihapus: ${file.name}")
+                    true
+                }
+            } catch (e: Exception) {
+                addLog("[ERROR] Gagal menghapus ${file.name}: ${e.message}")
+                false
             }
-            if (file.isDirectory) {
-                file.deleteRecursively()
-            } else {
-                file.delete()
-            }
-            addLog("[OK] Dihapus: ${file.name}")
-            true
-        } catch (e: Exception) {
-            addLog("[ERROR] Gagal menghapus: ${e.message}")
-            false
         }
     }
 
