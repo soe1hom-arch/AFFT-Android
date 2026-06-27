@@ -842,8 +842,10 @@ class AFFTService(private val context: Context) {
 
     fun cleanSelected(selectedDirs: List<String>) {
         val tempDir = getTempDir()
-        // Safety: verify temp dir is inside app private storage
-        if (!tempDir.absolutePath.startsWith(context.filesDir.absolutePath)) {
+        // Safety: gunakan canonical path untuk cegah symlink traversal
+        val canonTemp = try { tempDir.canonicalPath } catch (e: Exception) { tempDir.absolutePath }
+        val canonFiles = try { context.filesDir.canonicalPath } catch (e: Exception) { context.filesDir.absolutePath }
+        if (!canonTemp.startsWith(canonFiles)) {
             addLog("[ERROR] Safety abort: temp dir is outside app private storage!")
             return
         }
@@ -857,8 +859,10 @@ class AFFTService(private val context: Context) {
         for (dirName in selectedDirs) {
             val dir = File(tempDir, dirName)
             if (dir.exists()) {
-                // Double-check path is within tempDir
-                if (!dir.absolutePath.startsWith(tempDir.absolutePath + File.separator)) {
+                // Double-check path with canonical
+                val canonDir = try { dir.canonicalPath } catch (e: Exception) { dir.absolutePath }
+                val canonTempSep = try { tempDir.canonicalPath + File.separator } catch (e: Exception) { tempDir.absolutePath + File.separator }
+                if (!canonDir.startsWith(canonTempSep)) {
                     addLog("[ERROR] Safety abort: $dirName/ is outside temp dir!")
                     continue
                 }
@@ -1033,84 +1037,6 @@ class AFFTService(private val context: Context) {
             result
         }
     }
-
-    private fun moveFileToDownloads(sourceFile: File, relativePath: String, fileName: String): Boolean {
-        return try {
-            val baseDir = File("/storage/emulated/0/Download/AFFT")
-            if (!baseDir.exists()) baseDir.mkdirs()
-            // Preserve full directory structure
-            val destDir = if (relativePath.isNotEmpty()) {
-                File(baseDir, relativePath)
-            } else {
-                baseDir
-            }
-            if (!destDir.exists()) destDir.mkdirs()
-            val destFile = File(destDir, fileName)
-            // Copy file to destination
-            sourceFile.copyTo(destFile, overwrite = true)
-            // Delete source file after successful copy (move operation)
-            sourceFile.delete()
-            addLog("[OK] Dipindah ke Downloads/AFFT/$relativePath/$fileName")
-            true
-        } catch (e: Exception) {
-            addLog("[ERROR] Gagal memindah file: ${e.message}")
-            false
-        }
-    }
-
-    private suspend fun moveDirectoryToDownloads(srcDir: File, subdirName: String): Boolean {
-        return try {
-            // Use direct path for all Android versions
-            // App has MANAGE_EXTERNAL_STORAGE permission
-            val baseDir = File("/storage/emulated/0/Download/AFFT")
-            val destDir = File(baseDir, subdirName)
-            if (!destDir.exists()) destDir.mkdirs()
-            // Move files one by one to preserve structure
-            var movedCount = 0
-            val files = srcDir.listFiles() ?: emptyArray()
-            for (file in files) {
-                if (file.isFile) {
-                    if (moveFileToDownloads(file, subdirName, file.name)) movedCount++
-                } else if (file.isDirectory) {
-                    movedCount += moveAllNestedFiles(file, "$subdirName/${file.name}")
-                }
-            }
-            if (movedCount > 0) {
-                addLog("  Dipindah: $subdirName/ ($movedCount items)")
-                // Clean up source dir
-                val remaining = srcDir.listFiles()
-                if (remaining.isNullOrEmpty()) {
-                    srcDir.delete()
-                }
-                true
-            } else {
-                addLog("  [ERROR] Gagal memindah $subdirName/")
-                false
-            }
-        } catch (e: Exception) {
-            addLog("  [ERROR] Export $subdirName gagal: ${e.message}")
-            false
-        }
-    }
-
-    private fun moveAllNestedFiles(dir: File, relativePath: String): Int {
-        var count = 0
-        val files = dir.listFiles() ?: return 0
-        for (file in files) {
-            if (file.isFile) {
-                if (moveFileToDownloads(file, relativePath, file.name)) count++
-            } else if (file.isDirectory) {
-                count += moveAllNestedFiles(file, "$relativePath/${file.name}")
-            }
-        }
-        // Clean up source dir if empty
-        val remaining = dir.listFiles()
-        if (remaining.isNullOrEmpty()) {
-            dir.delete()
-        }
-        return count
-    }
-
     suspend fun copyResultToDownload(resultPath: String, destName: String): Boolean {
         return try {
             val sourceFile = File(resultPath)
@@ -1135,6 +1061,43 @@ class AFFTService(private val context: Context) {
     /**
      * List files in the input/ directory.
      */
+
+    private suspend fun moveDirectoryToDownloads(srcDir: File, subdirName: String): Boolean {
+        return try {
+            // Gunakan direct path (app punya MANAGE_EXTERNAL_STORAGE)
+            val baseDir = File("/storage/emulated/0/Download/AFFT")
+            if (!baseDir.exists()) baseDir.mkdirs()
+            val destDir = File(baseDir, subdirName)
+            // Hapus dulu jika sudah ada
+            if (destDir.exists()) destDir.deleteRecursively()
+            
+            // Coba rename dulu (instan kalo satu filesystem, kaya mv di Termux)
+            var moved = srcDir.renameTo(destDir)
+            
+            if (!moved) {
+                // rename gagal (beda filesystem), fallback ke copy+delete
+                addLog("  [INFO] rename gagal (beda partisi?), fallback copy+delete...")
+                srcDir.copyRecursively(destDir, overwrite = true)
+                if (destDir.exists()) {
+                    srcDir.deleteRecursively()
+                    moved = true
+                }
+            }
+            
+            if (moved && destDir.exists()) {
+                val fileCount = destDir.walkTopDown().count() - 1
+                addLog("  Dipindah: $subdirName/ ($fileCount items)")
+                true
+            } else {
+                addLog("  [ERROR] Gagal memindah $subdirName/")
+                false
+            }
+        } catch (e: Exception) {
+            addLog("  [ERROR] Export $subdirName gagal: ${e.message}")
+            false
+        }
+    }
+
     suspend fun listInputFiles(): List<File> {
         val inputDir = getInputDir()
         if (!inputDir.exists()) return emptyList()

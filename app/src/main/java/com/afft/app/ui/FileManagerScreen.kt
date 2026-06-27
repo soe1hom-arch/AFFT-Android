@@ -214,7 +214,7 @@ fun FileRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .height(56.dp)
             .padding(vertical = 2.dp)
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(

@@ -37,6 +37,15 @@ fun FilesystemScreen(
     var selectedDir by remember { mutableStateOf<String?>(null) }
     var expanded by remember { mutableStateOf(false) }
 
+    // Auto-detect file dari input/ saat screen dimuat (untuk menghindari copy ulang)
+    LaunchedEffect(Unit) {
+        val latestFile = afftService.getLatestInputFile()
+        if (latestFile != null) {
+            selectedInputFile = latestFile
+            selectedFileName = latestFile.name
+            selectedUri = null
+        }
+    }
 
 
     val filePicker = rememberLauncherForActivityResult(
