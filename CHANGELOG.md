@@ -2,53 +2,57 @@
 
 ## [2.0.2] — 2026-06-27
 
-### ✅ Fixed
-- **Export error** — Perbaiki `getWorkDir()` menggunakan `getExternalFilesDir(null)` agar `renameTo` berhasil (satu partisi dengan Downloads)
-- **Export lambat** — Ganti copy file-by-file dengan `renameTo` (mv) → instan, fallback `copyRecursively` jika beda partisi
-- **Clean hapus semua data** ([CRITICAL]) — Safety check `cleanSelected()` sekarang menggunakan `workDir` (parent dari tempDir) bukan `context.filesDir`. Mencegah penghapusan di luar folder kerja
-- **Layout File Manager tidak stabil** — Hapus `heightIn(min=400.dp)`, gunakan `weight(1f)` + placeholder minimum 5 baris agar tinggi konsisten walaupun folder kosong
-- **TerminalView di setiap screen** — Pindahkan console log dari masing-masing screen ke **sidebar drawer** yang bisa di-swipe dari kiri atau melalui ikon ☰
-- **About dialog** — diperbarui dengan informasi profesional: tentang aplikasi, pengembang, status binary, dan daftar fitur
-- **Nama file extraction** — URI wrapper sekarang preserve nama file asli (tidak hardcoded `filesystem_src.img`)
-- **Safety path** — Semua operasi file menggunakan `canonicalPath` untuk cegah symlink traversal
+### Ditambahkan
+- Sidebar drawer untuk Console Log (geser dari kiri atau tap ☰)
+- About dialog dengan info aplikasi, pengembang, status binary, dan fitur
+- Placeholder rows pada file list (minimal 5 item tampil walau folder kosong)
+- Tombol "Show Size" / "Hide Size" pada File Manager
+- Bullet point fitur di About dialog
 
-### 🔧 Changed
-- **AFFTService.kt** — `clearLogs()` diubah dari `private` ke `public` untuk tombol Clear di sidebar
-- **Directory structure** — Kerja pindah dari internal `filesDir` ke external `getExternalFilesDir(null)` untuk kompatibilitas export
+### Diubah
+- **TerminalView dipindahkan** dari setiap screen (Payload, Super, FS, Boot, File Manager) ke sidebar drawer — satu tempat terpusat
+- **Layout File Manager** distabilkan: Card file list menggunakan `weight(1f)` + `fillMaxSize()`
+- **Info bar** jadi lebih rapi dengan tombol aksi yang tersusun horizontal
+- Output log dibuat collapsible (sebelumnya selalu tampil)
 
-### 🚀 Added
-- **Sidebar drawer** — Menu navigasi cepat + console log terpusat
-- **About dialog** — Tampilan profesional dengan info app & developer
-- **Collapsible log** — Tombol Log/Hide Log di File Manager (sekarang terpusat di sidebar)
+### Diperbaiki
+- **⚠️ CRITICAL: Clean hapus semua data** — Safety check `cleanSelected()` sebelumnya menggunakan `context.filesDir` (internal). Setelah work directory dipindah ke external storage, safety check tidak valid. **Sekarang menggunakan `workDir`** sebagai root validasi.
+- **Safety check** menggunakan `canonicalPath` untuk cegah symlink traversal
+- Export gagal karena beda partisi — sekarang `getWorkDir()` menggunakan `getExternalFilesDir(null)` (external storage, satu partisi dengan Downloads)
+- Export lambat (copy file by file) — diganti `renameTo` (instan, seperti `mv` di Termux) dengan fallback `copyRecursively`
+- Hapus sumber gagal tidak lagi menggagalkan export (try-catch terpisah)
 
-### 🧪 Status Pengujian
-- [x] **Extract filesystem (img)** — Terbukti berfungsi
-- [ ] Payload — Belum diuji
-- [ ] Super — Belum diuji
-- [ ] Boot family — Belum diuji
-- [ ] Repack — Belum diuji
+### Teknis
+- `AFFTService.clearLogs()` dibuat public untuk tombol Clear di drawer
+- Semua import TerminalView tidak terpakai dibersihkan dari screen
+
+---
 
 ## [2.0.1] — 2026-06-26
 
-### ✅ Fixed
-- **Export via MediaStore** — Tambah `RELATIVE_PATH` tanpa prefix `Download/`
-- **FileManager** — Tinggi minimal 400dp untuk konsistensi tampilan
-- **ERoFS extraction** — Perbaiki command args (`-i -x -o`)
-- **ELF detection** — Deteksi dynamic/static untuk fallback linker64
-- **make_ext4fs** — Ganti dari GLIBC ke NDK (Bionic libc)
+### Ditambahkan
+- Auto-detect file dari folder input/ di semua screen
+- Dukungan EROFS filesystem (extract & repack)
+- ELF dynamic/static detection untuk linker64 fallback
 
-### 🔧 Changed
-- **Auto-detect file** — Kembalikan fungsi auto-detect dari folder `input/`
-- **UI screens** — Konsistensi layout di Payload, Super, Filesystem, Boot
+### Diubah
+- Fungsi extraction sekarang preserve nama file asli dari URI (tidak hardcoded)
+- Layout File Manager menggunakan `heightIn(min = 400.dp)`
+
+### Diperbaiki
+- Perintah extract.erofs menggunakan flag `-i -x -o` yang benar
+- `make_ext4fs` diganti dari GLIBC ke NDK (Bionic libc)
+
+---
 
 ## [2.0.0] — 2026-06-25
 
-### ✨ Initial Release
-- Ekstraksi & repack payload.bin
-- Unpack & repack super.img (sparse)
-- Ekstraksi & repack filesystem (EROFS/ext4)
-- Unpack & repack boot images (7 jenis)
-- File manager
-- Ekspor hasil ke Downloads
-- Terminal console real-time
-- Binary native untuk ARM64
+### Initial Release
+- Ekstrak & Repack payload.bin
+- Unpack & Repack super.img (sparse)
+- Ekstrak & Repack filesystem (ext4)
+- Unpack & Repack boot images (7 jenis)
+- File Manager dasar
+- Export ke Downloads
+- Clean folder kerja
+- Binary deployment otomatis

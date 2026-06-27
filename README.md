@@ -1,10 +1,11 @@
 # AFFT-Android
 
 **Android Firmware Full Toolkit** — Aplikasi Android untuk memodifikasi firmware Android.  
-Dibangun dengan Kotlin + Jetpack Compose.
+Dibangun dengan **Kotlin + Jetpack Compose**.
 
-> Author: **soe1hom-arch / Wandi**  
-> Version: **2.0.2**
+> **Author:** soe1hom-arch / Wandi  
+> **Version:** 2.0.2  
+> **Lisensi:** Open-source
 
 ---
 
@@ -13,6 +14,7 @@ Dibangun dengan Kotlin + Jetpack Compose.
 ### 📦 Payload
 - **Ekstrak** `payload.bin` — Bongkar OTA firmware Android
 - **Repack** dari folder hasil ekstraksi
+- ✅ Terbukti bekerja
 
 ### 💾 Super
 - **Unpack** `super.img` — Bongkar logical partitions (sparse support)
@@ -22,6 +24,7 @@ Dibangun dengan Kotlin + Jetpack Compose.
 - **Ekstrak** filesystem (EROFS & ext4) dari file `.img`
 - **Repack** filesystem dari folder hasil ekstraksi
 - Auto-detect tipe filesystem
+- ✅ Terbukti bekerja
 
 ### 👢 Boot Family
 Unpack & Repack 7 jenis boot image:
@@ -32,17 +35,23 @@ Unpack & Repack 7 jenis boot image:
 ### 📁 File Manager
 - Browse folder `temp/`, `work/`, `input/`, `Downloads/AFFT/`
 - Lihat struktur file hasil ekstraksi
-- Selection & export ke Downloads
+- Layout stabil: selalu tampilkan minimal 5 item
+- Tampilkan/sembunyikan ukuran file
 
-### 🖥 Console Log
-- **Sidebar drawer** — Geser dari kiri atau tap ☰
+### 🖥 Console Log (Sidebar)
+- **Sidebar drawer** — Geser dari kiri layar atau tap ikon ☰
 - Output real-time semua operasi
 - Tombol **Clear** untuk membersihkan log
+- Log sudah dipindahkan dari semua screen ke satu tempat terpusat
 
 ### 🧹 Clean & Export
 - **Clean** — Hapus folder kerja (img, contents, payload, boot_out, dll.)
-- **Export** — Pindahkan hasil kerja ke `Downloads/AFFT/` secara instan
-- Aman: safety check dengan canonical path, anti symlink traversal
+  - ✅ Safety check dengan `canonicalPath`, anti symlink traversal
+  - ✅ Tidak akan hapus di luar folder kerja
+- **Export** — Pindahkan hasil kerja ke `Downloads/AFFT/`
+  - ✅ `renameTo` = instan (seperti `mv` di Termux)
+  - ✅ Fallback `copyRecursively` jika rename gagal
+  - ✅ Aman: error hapus sumber tidak gagalkan export
 
 ---
 
@@ -75,25 +84,41 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`
 ## Struktur Direktori
 
 ```
-/storage/emulated/0/
-├── Android/data/com.afft.app/files/afft_work/
-│   ├── input/          ← Tempat file input (payload, img, dll)
-│   ├── temp/
-│   │   ├── payload/    ← Hasil ekstraksi payload.bin
-│   │   ├── img/        ← Hasil repack / image output
-│   │   ├── contents/   ← Hasil ekstraksi filesystem
-│   │   ├── boot_out/   ← Hasil unpack boot images
-│   │   ├── repacked/   ← Hasil repack
-│   │   └── logs/       ← Log operasi
-│   └── temp/           ← Temporary working directory
-└── Download/AFFT/       ← Hasil export
+/storage/emulated/0/Android/data/com.afft.app/files/afft_work/
+├── input/              ← Tempat file input (payload.bin, super.img, dll)
+└── temp/
+    ├── img/            ← Image hasil repack / output
+    ├── contents/       ← Hasil ekstraksi filesystem
+    ├── payload/        ← Hasil ekstraksi payload.bin
+    ├── boot_out/       ← Hasil unpack boot images
+    ├── repacked/       ← Hasil repack
+    └── logs/           ← Log operasi
+
+/storage/emulated/0/Download/AFFT/   ← Hasil export
 ```
 
 ---
 
-## Credits & Lisensi
+## Rencana Pengembangan
+
+- [x] Ekstrak & Repack payload.bin
+- [x] Unpack & Repack super.img
+- [x] Ekstrak & Repack filesystem (EROFS/ext4)
+- [x] Unpack & Repack boot images
+- [x] File Manager
+- [x] Export instan (renameTo)
+- [x] Safety check Clean (anti hapus sembarangan)
+- [x] Sidebar drawer untuk console log
+- [x] About dialog profesional
+- [ ] Uji coba Payload & Super
+- [ ] Uji coba Boot images
+- [ ] Backup & restore
+
+---
+
+## Credits
 
 Dikembangkan oleh **soe1hom-arch / Wandi**  
 — _AFFT: Alat Modifikasi Firmware Android untuk Semua_
 
-_Project open-source, gunakan dengan bijak._
+Project open-source, gunakan dengan bijak.
