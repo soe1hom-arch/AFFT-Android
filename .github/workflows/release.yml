@@ -159,11 +159,12 @@ jobs:
           cp libpayload-dumper-go.so ${{ github.workspace }}/app/src/main/assets/bin/
           ls -la ${{ github.workspace }}/app/src/main/assets/bin/
 
-          # Clean up Go build artifacts to free disk
-          rm -rf "$GOMODCACHE"
-          rm -rf "$WORK_DIR/payload-dumper-go"
-          rm -rf "$WORK_DIR/zstd"
-          rm -rf "$WORK_DIR/xz-install"
+          # Clean up Go build artifacts to free disk (handle read-only files)
+          chmod -R u+w "$GOMODCACHE" 2>/dev/null || true
+          rm -rf "$GOMODCACHE" 2>/dev/null || true
+          rm -rf "$WORK_DIR/payload-dumper-go" 2>/dev/null || true
+          rm -rf "$WORK_DIR/zstd" 2>/dev/null || true
+          rm -rf "$WORK_DIR/xz-install" 2>/dev/null || true
         shell: bash
 
       - name: Setup Gradle
