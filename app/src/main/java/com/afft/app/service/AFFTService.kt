@@ -560,9 +560,24 @@ class AFFTService(private val context: Context) {
             val cores = Runtime.getRuntime().availableProcessors()
             val concurrency = maxOf(2, cores / 2)
             addLog("[INFO] CPU cores: $cores, concurrency: -c $concurrency")
+            // Gunakan nice untuk prioritas CPU lebih tinggi (fallback jika gagal)
+            val extractCmd = try {
+                val testProcess = Runtime.getRuntime().exec(arrayOf("nice", "-n", "-5", "echo", "test"))
+                testProcess.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+                if (!testProcess.isAlive && testProcess.exitValue() == 0) {
+                    listOf("nice", "-n", "-5", payloadDumper, inputFile.absolutePath, "-o",
+                        File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString())
+                } else {
+                    listOf(payloadDumper, inputFile.absolutePath, "-o",
+                        File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString())
+                }
+            } catch (e: Exception) {
+                listOf(payloadDumper, inputFile.absolutePath, "-o",
+                    File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString())
+            }
+            addLog("[INFO] Command: ${extractCmd.joinToString(" ")}")
             val result = ShellExecutor.executeWithProgress(
-                command = listOf(payloadDumper, inputFile.absolutePath, "-o",
-                    File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString()),
+                command = extractCmd,
                 workingDir = getTempDir(),
                 envVars = mapOf("LD_LIBRARY_PATH" to ldLibraryPath),
                 onProgress = { addLog(it) },
@@ -669,6 +684,7 @@ class AFFTService(private val context: Context) {
             // direct -> linker64 -> sh -c (untuk mengatasi SELinux noexec)
             val cores = Runtime.getRuntime().availableProcessors()
             val concurrency = maxOf(2, cores / 2)
+            addLog("[INFO] Fallback concurrency: -c $concurrency")
             val fallbackResult = ShellExecutor.executeBinary(
                 binaryPath = localBinary.absolutePath,
                 args = listOf(inputFile.absolutePath, "-o",
