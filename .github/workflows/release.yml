@@ -110,7 +110,7 @@ jobs:
           cd payload-dumper-go
 
           # Apply CGO patch
-          sed -i '/"github.com/ulikunitz/xz"/d' payload.go
+          sed -i '/"github.com\/ulikunitz\/xz"/d' payload.go
           sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
           go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
           cp ${{ github.workspace }}/tools/cgo_lzma.go ./
