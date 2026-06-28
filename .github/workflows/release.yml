@@ -143,12 +143,20 @@ jobs:
             find "$GOMODCACHE" -name "gozstd*" -type d 2>/dev/null
           fi
 
-          # Build with CGO static link
-          go build -tags netgo -ldflags '-extldflags "-static"' -o payload-dumper-go
+          # Build with CGO (external linker mode)
+          go build \
+            -ldflags="-linkmode=external -s -w" \
+            -o libpayload-dumper-go.so \
+            .
 
           echo "=== Binary built ==="
-          file payload-dumper-go
-          cp payload-dumper-go ${{ github.workspace }}/app/src/main/assets/bin/
+          file libpayload-dumper-go.so
+          # Verify no missing dynamic libs
+          NEEDED=$(readelf -d libpayload-dumper-go.so 2>/dev/null | grep NEEDED || true)
+          if [ -n "$NEEDED" ]; then
+            echo "=== NEEDED libraries: $NEEDED ==="
+          fi
+          cp libpayload-dumper-go.so ${{ github.workspace }}/app/src/main/assets/bin/
           ls -la ${{ github.workspace }}/app/src/main/assets/bin/
 
           # Clean up Go build artifacts to free disk
