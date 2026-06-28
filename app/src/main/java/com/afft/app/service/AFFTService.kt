@@ -13,9 +13,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
-import kotlin.text.Regex
-import java.io.File
-import kotlin.text.RegexOutputStream
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import com.afft.app.service.AFFTExtractService
 
