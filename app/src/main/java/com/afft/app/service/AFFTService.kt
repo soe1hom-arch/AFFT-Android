@@ -36,9 +36,34 @@ class AFFTService(private val context: Context) {
 
     fun isDebugMode(): Boolean = debugMode
 
+    private var _currentLogFile: File? = null
+    val currentLogFile: File? get() = _currentLogFile
+
+    private fun initLogFile() {
+        try {
+            val logsDir = File(getTempDir(), "logs")
+            logsDir.mkdirs()
+            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.US).format(java.util.Date())
+            _currentLogFile = File(logsDir, "log_${timestamp}.txt")
+            _currentLogFile?.writeText("=== AFFT Log Session: $timestamp ===\n")
+            android.util.Log.d("AFFTService", "[LOG] Log file: ${_currentLogFile?.absolutePath}")
+        } catch (e: Exception) {
+            android.util.Log.e("AFFTService", "Gagal init log file: ${e.message}")
+        }
+    }
+
     private fun addLog(text: String) {
         _logs.value = _logs.value + listOf(text)
         android.util.Log.d("AFFTService", text)
+        // Write to log file
+        val logFile = _currentLogFile
+        if (logFile != null) {
+            try {
+                logFile.appendText("$text\n")
+            } catch (e: Exception) {
+                android.util.Log.w("AFFTService", "Gagal tulis log file: ${e.message}")
+            }
+        }
     }
 
     private fun updateProgress(msg: String) {
@@ -50,8 +75,31 @@ class AFFTService(private val context: Context) {
     fun clearLogs() {
         _logs.value = emptyList()
         _progressMessage.value = ""
+        initLogFile()
     }
 
+
+
+    suspend fun getLogFiles(): List<File> {
+        val logsDir = File(getTempDir(), "logs")
+        if (!logsDir.exists()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            logsDir.listFiles()?.filter { it.name.endsWith(".txt") }
+                ?.sortedByDescending { it.lastModified() } ?: emptyList()
+        }
+    }
+
+    suspend fun getLogContent(logFile: File): String {
+        return withContext(Dispatchers.IO) {
+            try {
+                logFile.readText()
+            } catch (e: Exception) {
+                "Gagal membaca log: ${e.message}"
+            }
+        }
+    }
+
+    fun getLogsDir(): File = File(getTempDir(), "logs")
 
     fun getFreeSpace(path: String): Long {
         return try {
@@ -276,6 +324,7 @@ class AFFTService(private val context: Context) {
         File(getTempDir(), "img_src").mkdirs()
         File(getTempDir(), "filesystem_work").mkdirs()
         File(getTempDir(), "logs").mkdirs()
+        initLogFile()
     }
 
     /**

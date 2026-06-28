@@ -160,10 +160,54 @@ fun MainScreen(afftService: AFFTService) {
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(onClick = {
-                        afftService.clearLogs()
-                    }) {
-                        Text("Clear", fontSize = 12.sp)
+                    Row {
+                        // Copy log ke clipboard
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        IconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("AFFT Log", logs.joinToString("\n"))
+                                clipboard.setPrimaryClip(clip)
+                                android.widget.Toast.makeText(context, "Log disalin ke clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.ContentCopy,
+                                contentDescription = "Copy Log",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        // Simpan log ke file
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                                    val logDir = File(downloadsDir, "AFFT")
+                                    logDir.mkdirs()
+                                    val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                                    val logFile = File(logDir, "afft_log_$timestamp.txt")
+                                    logFile.writeText(logs.joinToString("\n"))
+                                    android.widget.Toast.makeText(context, "Log tersimpan: ${logFile.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Gagal simpan log: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.SaveAlt,
+                                contentDescription = "Save Log",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = {
+                            afftService.clearLogs()
+                        }) {
+                            Text("Clear", fontSize = 12.sp)
+                        }
                     }
                 }
             }
