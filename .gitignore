@@ -14,3 +14,6 @@ app/release
 *.aab
 *.keystore
 debug.keystore
+app/release-key.jks
+release-key.jks
+keystore_base64.txt

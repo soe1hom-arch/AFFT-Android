@@ -1,0 +1,116 @@
+name: Android Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Install NDK
+      run: |
+        echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653"
+
+    - name: Compile native libs (liblzma + libzstd) for Android
+      run: |
+        NDK_DIR=${ANDROID_HOME}/ndk/25.2.9519653
+        TOOLCHAIN=${NDK_DIR}/toolchains/llvm/prebuilt/linux-x86_64
+        TARGET=aarch64-linux-android
+        API=26
+
+        # liblzma
+        cd /tmp
+        curl -sLO https://tukaani.org/xz/xz-5.6.2.tar.gz
+        tar xzf xz-5.6.2.tar.gz
+        cd xz-5.6.2
+        CC=${TOOLCHAIN}/bin/${TARGET}${API}-clang AR=${TOOLCHAIN}/bin/llvm-ar \
+          ./configure --host=${TARGET} --prefix=${PWD}/build --disable-shared --enable-static
+        make -j$(nproc)
+        make install
+        mkdir -p ${GITHUB_WORKSPACE}/native-libs
+        cp build/lib/liblzma.a ${GITHUB_WORKSPACE}/native-libs/
+
+        # libzstd
+        cd /tmp
+        git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd.git
+        cd zstd
+        CC=${TOOLCHAIN}/bin/${TARGET}${API}-clang AR=${TOOLCHAIN}/bin/llvm-ar \
+          make -j$(nproc) lib lib-mt
+        cp lib/libzstd.a ${GITHUB_WORKSPACE}/native-libs/
+
+    - name: Build CGO-native payload-dumper-go
+      env:
+        CGO_ENABLED: "1"
+        GOOS: android
+        GOARCH: arm64
+        CC: ${ANDROID_HOME}/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
+        AR: ${ANDROID_HOME}/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+        CGO_LDFLAGS: "-L${GITHUB_WORKSPACE}/native-libs -llzma -lzstd -static -Wl,-Bstatic"
+        CGO_CFLAGS: "-I${GITHUB_WORKSPACE}/native-libs/include"
+      run: |
+        cd /tmp
+        git clone --depth 1 https://github.com/ssut/payload-dumper-go.git
+        cd payload-dumper-go
+        # Create writable module cache and replace gozstd .a for Android
+        export GOMODCACHE=/tmp/payload-build/go-mod-cache
+        mkdir -p ${GOMODCACHE}
+        go mod download
+        # Replace gozstd's linux .a with our Android-compiled version
+        GOZSTD_DIR=$(find ${GOMODCACHE} -path "*/gozstd*" -type d | head -1)
+        if [ -n "$GOZSTD_DIR" ]; then
+          cp ${GITHUB_WORKSPACE}/native-libs/libzstd.a ${GOZSTD_DIR}/libzstd_linux_arm64.a
+        fi
+        # Build with CGO static link
+        go build -tags netgo -ldflags '-extldflags "-static"' -o payload-dumper-go
+        file payload-dumper-go
+        # Copy to workspace
+        cp payload-dumper-go ${GITHUB_WORKSPACE}/app/src/main/assets/bin/
+        ls -la ${GITHUB_WORKSPACE}/app/src/main/assets/bin/
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+
+    - name: Decode Keystore
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release-key.jks
+
+    - name: Build Release APK
+      run: |
+        ./gradlew assembleRelease
+      shell: bash
+      env:
+        KEYSTORE_PATH: "app/release-key.jks"
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    - name: Clean Keystore
+      if: always()
+      run: |
+        if [ -f app/release-key.jks ]; then
+          rm -f app/release-key.jks
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: app/build/outputs/apk/release/app-release.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
