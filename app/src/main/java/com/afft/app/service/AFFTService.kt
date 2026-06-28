@@ -630,7 +630,7 @@ class AFFTService(private val context: Context) {
                 envVars = mapOf("LD_LIBRARY_PATH" to ldLibraryPath),
                 onProgress = { line ->
                     parsePayloadProgress(line)
-                    addLog(line)
+                    // Don't add payload-dumper-go output to logs (progress bar only)
                 },
                 timeoutMillis = 1800000L
             )
@@ -752,7 +752,7 @@ class AFFTService(private val context: Context) {
                     File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString()),
                 workingDir = getTempDir(),
                 envVars = envVars,
-                onOutput = { addLog(it) },
+                onOutput = { parsePayloadProgress(it) },
                 timeoutMillis = 1800000L
             )
             

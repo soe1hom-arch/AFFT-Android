@@ -39,6 +39,7 @@ fun TerminalView(
     logs: List<String>,
     modifier: Modifier = Modifier,
     maxHeight: Int = 400,
+    isRunning: Boolean = false,
     progressPercent: Int = 0,
     currentPartition: String = ""
 ) {
@@ -67,8 +68,8 @@ fun TerminalView(
             }
         }
 
-        // ── Progress bar (battery style) ────────────
-        if (progressPercent > 0 || currentPartition.isNotEmpty()) {
+        // ── Progress bar (battery style) — only during payload extraction
+        if (isRunning && (progressPercent > 0 || currentPartition.isNotEmpty())) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

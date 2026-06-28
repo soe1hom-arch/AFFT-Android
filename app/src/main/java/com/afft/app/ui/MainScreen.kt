@@ -160,6 +160,7 @@ fun MainScreen(afftService: AFFTService) {
                         .weight(1f)
                         .padding(horizontal = 8.dp),
                     maxHeight = 1000,
+                    isRunning = isRunning,
                     progressPercent = progressPercent,
                     currentPartition = currentPartition
                 )
