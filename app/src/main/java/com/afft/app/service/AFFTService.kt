@@ -630,39 +630,22 @@ class AFFTService(private val context: Context) {
         outDir.mkdirs()
 
         return try {
-            // Check if image is sparse Android format, convert with simg2img if needed
+            // Check if image is sparse Android format, convert to raw if needed
             updateProgress("Memeriksa format gambar...")
-            val simg2imgBin = BinaryManager.getBinaryPath(context, "simg2img")
             var workingFile = inputFile
 
-            if (simg2imgBin != null && isSparseImage(inputFile)) {
-                updateProgress("Mengkonversi sparse ke raw image...")
+            if (isSparseImage(inputFile)) {
+                updateProgress("Mengkonversi sparse ke raw image (pure Kotlin)...")
                 addLog("[INFO] Deteksi gambar sparse Android, mengkonversi ke raw...")
                 val rawFile = File(getTempDir(), "${name}_raw.img")
-                val convertResult = ShellExecutor.executeWithProgress(
-                    command = listOf(simg2imgBin, inputFile.absolutePath, rawFile.absolutePath),
-                    workingDir = getTempDir(),
-                    onProgress = { addLog(it) }
-                )
-                if (convertResult.exitCode == 0 && rawFile.exists()) {
+                val convertOk = SparseImage.sparseToRaw(inputFile, rawFile)
+                if (convertOk && rawFile.exists() && rawFile.length() > 0) {
                     addLog("[OK] Konversi sparse->raw berhasil: ${rawFile.length()} bytes")
                     workingFile = rawFile
                 } else {
-                    addLog("[WARN] Konversi sparse gagal, menggunakan file asli")
-                    convertResult.errorOutput.forEach { addLog("[ERROR] $it") }
-                    // Periksa apakah simg2img gagal karena "CANNOT LINK EXECUTABLE"
-                    val linkError = convertResult.errorOutput.any {
-                        it.contains("CANNOT LINK", ignoreCase = true) ||
-                        it.contains("executable", ignoreCase = true) ||
-                        it.contains("denied", ignoreCase = true)
-                    }
-                    if (linkError) {
-                        addLog("[WARN] simg2img terblokir oleh SELinux/noexec Android 14+")
-                        addLog("[WARN] Mencoba langsung extract.erofs pada sparse image...")
-                    }
+                    addLog("[WARN] Konversi sparse->raw gagal, menggunakan file asli")
+                    addLog("[WARN] File mungkin bukan sparse image yang valid, lanjut dengan file asli")
                 }
-            } else if (simg2imgBin == null) {
-                addLog("[INFO] simg2img tidak tersedia, gunakan file langsung")
             }
 
             // Detect filesystem type on the (possibly converted) raw file
