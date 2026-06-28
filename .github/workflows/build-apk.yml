@@ -58,8 +58,8 @@ jobs:
           WORK_DIR=/tmp/payload-build
           mkdir -p "$WORK_DIR"
 
-          # ─── [1] Build liblzma.a (static, for linking into Go binary) ──
-          echo "=== [1] Building liblzma.a + liblzma.so.5 ==="
+          # ─── [1] Build liblzma.a (static) ─────────────────────
+          echo "=== [1] Building liblzma.a (static) ==="
           cd "$WORK_DIR"
           LZMA_VER="5.4.6"
           if [ ! -f "xz-${LZMA_VER}.tar.xz" ]; then
@@ -69,7 +69,6 @@ jobs:
           rm -rf "xz-${LZMA_VER}"
           tar -xf "xz-${LZMA_VER}.tar.xz"
           cd "xz-${LZMA_VER}"
-          # Build BOTH static AND shared libraries
           ./configure --host=aarch64-linux-android \
             --prefix="$WORK_DIR/xz-install" \
             CC="$CC" AR="$AR" RANLIB="$RANLIB" \
@@ -98,25 +97,28 @@ jobs:
           sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
           # Hapus dependency xz dari go.mod
           go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
-          # Salin CGO wrapper dari repo
+          # Copy CGO wrapper dari repo
           cp ${{ github.workspace }}/tools/cgo_lzma.go ./
 
-          # ─── [4] Compile dengan CGO: liblzma.a static, system libs dynamic ──
-          echo "=== [4] Compiling with CGO (liblzma static, system libs dynamic) ==="
+          # ─── [4] Compile ──────────────────────────────────────
+          echo "=== [4] Compiling payload-dumper-go ==="
           export GO111MODULE=on
           export CGO_ENABLED=1
           export GOOS=android
           export GOARCH=arm64
           export CC="$CC"
           export CGO_CFLAGS="-I$WORK_DIR/xz-install/include -O2"
-          # KEY: -l:liblzma.a links liblzma.a by full filename (static)
-          # WITHOUT -static flag, system libs (libc, libdl, liblog) stay dynamic
           export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -l:liblzma.a"
 
+          # Hapus go.sum agar Go resolve dependencies ulang dari go.mod
+          # dan HANYA untuk konfigurasi build ini (android/arm64).
+          # go mod tidy akan resolve utk SEMUA build tag dan platform,
+          # yg bisa menarik gozstd (pre-compiled libzstd untuk GLIBC/linux,
+          # tidak kompatibel dengan Android Bionic).
           rm -f go.sum
-          go mod tidy 2>&1
 
-          go build \
+          # GONOSUMCHECK=*: skip checksum verification untuk go.sum yg baru
+          GONOSUMCHECK=* go build \
             -ldflags="-linkmode=external -s -w" \
             -o libpayload-dumper-go.so \
             .
@@ -125,18 +127,16 @@ jobs:
           echo "=== [5] Verifying binary ==="
           file libpayload-dumper-go.so
           NEEDED=$(readelf -d libpayload-dumper-go.so 2>/dev/null | grep NEEDED || true)
-          if [ -z "$NEEDED" ]; then
-            echo "✓ Static binary (no runtime dependencies)"
-          else
-            echo "⚠ Dynamic NEEDED (should only be system libs):"
-            echo "$NEEDED"
-          fi
-          # Verify no liblzma dependency (should be statically embedded)
+          echo "Dynamic NEEDED:"
+          echo "$NEEDED"
           if echo "$NEEDED" | grep -q lzma; then
-            echo "❌ ERROR: liblzma is still a dynamic dependency!"
+            echo "❌ ERROR: liblzma is a dynamic dependency (should be static)!"
             exit 1
           else
             echo "✓ liblzma is statically embedded inside the binary"
+          fi
+          if echo "$NEEDED" | grep -q "libc\|libdl\|liblog\|libm"; then
+            echo "✓ System libraries are dynamically linked (normal)"
           fi
 
           $TOOLCHAIN/bin/llvm-strip libpayload-dumper-go.so 2>/dev/null || true
