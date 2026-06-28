@@ -676,6 +676,8 @@ class AFFTService(private val context: Context) {
             val envVars = mapOf("LD_LIBRARY_PATH" to ldPath)
             // Gunakan ShellExecutor.executeBinary() yang memiliki fallback:
             // direct -> linker64 -> sh -c (untuk mengatasi SELinux noexec)
+            val cores = Runtime.getRuntime().availableProcessors()
+            val concurrency = maxOf(2, cores - 2)
             val fallbackResult = ShellExecutor.executeBinary(
                 binaryPath = localBinary.absolutePath,
                 args = listOf(inputFile.absolutePath, "-o",
