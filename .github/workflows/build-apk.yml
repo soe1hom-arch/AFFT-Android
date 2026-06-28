@@ -135,9 +135,11 @@ jobs:
             echo "=== Replacing gozstd .a files ==="
             # Go downloads module files with read-only perms (0444)
             chmod -R u+w "$GOZSTD_DIR"
-            rm -f "$GOZSTD_DIR/libzstd_linux_"*.a
-            cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_android_arm64.a"
-            ls -la "$GOZSTD_DIR/libzstd_"*.a
+            # gozstd hardcodes "linux" in .a filename even for android target
+            # So we replace libzstd_linux_arm64.a with our Android-compiled one
+            rm -f "$GOZSTD_DIR/libzstd_linux_arm64.a"
+            cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_linux_arm64.a"
+            ls -la "$GOZSTD_DIR/libzstd_linux_"*.a
           else
             echo "WARNING: gozstd not found at $GOZSTD_DIR"
           fi
