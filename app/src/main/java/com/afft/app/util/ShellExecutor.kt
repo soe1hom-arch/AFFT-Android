@@ -141,8 +141,9 @@ object ShellExecutor {
     suspend fun executeWithProgress(
         command: List<String>,
         workingDir: File? = null,
+        envVars: Map<String, String>? = null,
         onProgress: ((String) -> Unit)? = null
-    ): CommandResult = execute(command, workingDir, onOutput = onProgress)
+    ): CommandResult = execute(command, workingDir, envVars = envVars, onOutput = onProgress)
 
     fun buildBinaryCommand(
         context: Context,

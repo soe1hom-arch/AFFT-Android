@@ -26,7 +26,7 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Install NDK & cross-compile liblzma + build payload-dumper-go
+      - name: Install NDK & cross-compile liblzma.so.5 for Android ARM64
         run: |
           # --- Find/Cache NDK ---
           if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
@@ -68,30 +68,14 @@ jobs:
           if [ -f /tmp/xz-install/lib/liblzma.so.5 ]; then
             echo "=== liblzma.so.5 built successfully! ==="
             file /tmp/xz-install/lib/liblzma.so.5
-            # Copy to repo
+            readelf -d /tmp/xz-install/lib/liblzma.so.5 2>/dev/null | grep NEEDED
+            # Copy to repo (jniLibs + assets/bin)
             mkdir -p ${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/
             cp /tmp/xz-install/lib/liblzma.so.5 ${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/
             cp /tmp/xz-install/lib/liblzma.so.5 ${{ github.workspace }}/app/src/main/assets/bin/
+            echo "liblzma.so.5 deployed!"
           else
             echo "WARNING: liblzma.so.5 build failed!"
-          fi
-          
-          # --- Build payload-dumper-go with CGO ---
-          echo "Cloning payload-dumper-go..."
-          git clone --depth=1 https://github.com/ssut/payload-dumper-go.git /tmp/payload-dumper-go
-          cd /tmp/payload-dumper-go
-          
-          echo "Building payload-dumper-go for android/arm64..."
-          CGO_CFLAGS="-I/tmp/xz-install/include"           CGO_LDFLAGS="-L/tmp/xz-install/lib -llzma"           GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$CC             go build -ldflags="-s -w" -o payload-dumper-go . 2>&1
-          
-          if [ -f payload-dumper-go ]; then
-            echo "=== payload-dumper-go built successfully! ==="
-            file payload-dumper-go
-            readelf -d payload-dumper-go 2>/dev/null | grep NEEDED
-            cp payload-dumper-go ${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/libpayload-dumper-go.so
-            cp payload-dumper-go ${{ github.workspace }}/app/src/main/assets/bin/payload-dumper-go
-          else
-            echo "WARNING: payload-dumper-go build failed, keeping existing"
           fi
         shell: bash
 

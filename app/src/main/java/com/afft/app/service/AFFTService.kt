@@ -360,16 +360,18 @@ class AFFTService(private val context: Context) {
             updateProgress("Extracting payload, mohon tunggu...")
             addLog("Running payload-dumper-go...")
             
-            // Set LD_LIBRARY_PATH untuk memastikan library (liblzma.so.5) ditemukan
-            // saat dijalankan dari nativeLibraryDir (jniLibs)
+            // Set LD_LIBRARY_PATH untuk memastikan liblzma.so.5 ditemukan
+            // (dibutuhkan oleh payload-dumper-go yang dynamic link via CGO)
             val nativeLibDir = context.applicationInfo.nativeLibraryDir
             val binDir = BinaryManager.getBinDirectory(context).absolutePath
             val ldLibraryPath = "$nativeLibDir:$binDir"
+            addLog("[INFO] LD_LIBRARY_PATH=$ldLibraryPath")
             
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(payloadDumper, inputFile.absolutePath, "-o",
                     File(getTempDir(), "payload").absolutePath),
                 workingDir = getTempDir(),
+                envVars = mapOf("LD_LIBRARY_PATH" to ldLibraryPath),
                 onProgress = { addLog(it) }
             )
 
