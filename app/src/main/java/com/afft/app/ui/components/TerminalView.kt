@@ -69,7 +69,7 @@ fun TerminalView(
         }
 
         // ── Progress bar (battery style) — only during payload extraction
-        if (isRunning && (progressPercent > 0 || currentPartition.isNotEmpty())) {
+        if (isRunning) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

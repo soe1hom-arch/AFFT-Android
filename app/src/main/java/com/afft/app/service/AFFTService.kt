@@ -12,6 +12,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
@@ -623,7 +629,35 @@ class AFFTService(private val context: Context) {
                 listOf(payloadDumper, inputFile.absolutePath, "-o",
                     File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString())
             }
+            // Set initial progress state
+            _progressPercent.value = 0
+            _currentPartition.value = "Initializing..."
             addLog("[INFO] Command: ${extractCmd.joinToString(" ")}")
+            
+            // Start directory monitoring for progress tracking
+            val payloadOutputDir = File(getTempDir(), "Payload")
+            val monitorScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+            val monitorJob = monitorScope.launch {
+                var lastCount = 0
+                while (isActive) {
+                    delay(2000)
+                    val imgFiles = payloadOutputDir.listFiles()
+                        ?.filter { it.extension == "img" || it.extension == "new" }
+                        ?: emptyList()
+                    if (imgFiles.isNotEmpty()) {
+                        if (imgFiles.size > lastCount) {
+                            lastCount = imgFiles.size
+                            _currentPartition.value = imgFiles.last().nameWithoutExtension
+                        }
+                        if (_totalPartitions.value > 0) {
+                            _progressPercent.value = ((lastCount * 100) / _totalPartitions.value).coerceIn(0, 100)
+                        } else {
+                            _progressPercent.value = lastCount.coerceAtMost(100)
+                        }
+                    }
+                }
+            }
+            
             val result = ShellExecutor.executeWithProgress(
                 command = extractCmd,
                 workingDir = getTempDir(),
@@ -635,6 +669,10 @@ class AFFTService(private val context: Context) {
                 timeoutMillis = 1800000L
             )
 
+            // Cancel monitoring
+            monitorJob.cancel()
+            monitorScope.cancel()
+            
             if (result.isTimeout) {
                 addLog("[TIMEOUT] Extract Payload: proses tidak selesai dalam 30 menit, dibatalkan")
                 addLog("[TIMEOUT] Perangkat mungkin kekurangan RAM atau sistem membekukan proses")
