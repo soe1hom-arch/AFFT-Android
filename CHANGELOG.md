@@ -1,3 +1,23 @@
+## [2.0.3] — 2026-06-28
+
+### Diperbaiki
+- **⚠️ CRITICAL: payload.bin extraction gagal 100%** — Root cause: `payload-dumper-go` adalah Go binary dengan CGO (dynamic link) yang membutuhkan `liblzma.so.5`. Android 14+ memblokir eksekusi dari app data directory (`noexec`), dan Android tidak mengekstrak versioned `.so` (seperti `liblzma.so.5`) dari `jniLibs`.
+- **Solusi**: Merebuild `payload-dumper-go` sebagai **static binary** (`CGO_ENABLED=0`) dengan mengganti library `go-xz` (CGO wrapper untuk liblzma) dan `gozstd` (CGO wrapper untuk libzstd) ke pure Go alternatif (`ulikunitz/xz` + `klauspost/compress`). Binary sekarang tidak butuh library external sama sekali.
+
+### Ditambahkan
+- **Logs Viewer** — Menu baru di sidebar drawer untuk melihat dan membaca file log dari `temp/logs/`. Bisa refresh, hapus log lama, dan simpan ke Downloads.
+- **Inisialisasi log file otomatis** saat service dibuat (tidak hanya saat `clearLogs()`)
+- **`saveCurrentLogToDownloads()`** — Simpan log session saat ini ke `Downloads/AFFT/logs/`
+- **`clearOldLogs()`** — Auto-hapus log file lama, sisakan 20 terbaru
+- **Deploy `liblzma.so.5` dari assets** di `runPayloadDumperFallback()` sebagai fallback
+- **`ShellExecutor.executeBinary()`** — Fallback chain: direct → `/system/bin/linker64` → `sh -c` (mengatasi SELinux noexec di Android 14+)
+
+### Diubah
+- **CI Workflow** — Tidak perlu lagi cross-compile `liblzma.so.5` dari XZ Utils (binary sudah static)
+- **Status binary**: `payload-dumper-go` sekarang **static** (0 NEEDED libraries)
+
+---
+
 # Changelog AFFT-Android
 
 ## [2.0.2] — 2026-06-27

@@ -69,13 +69,25 @@ jobs:
             echo "=== liblzma.so.5 built successfully! ==="
             file /tmp/xz-install/lib/liblzma.so.5
             readelf -d /tmp/xz-install/lib/liblzma.so.5 2>/dev/null | grep NEEDED
-            # Copy to repo (jniLibs + assets/bin)
-            mkdir -p ${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/
-            cp /tmp/xz-install/lib/liblzma.so.5 ${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/
+            # Copy ke assets/bin/ untuk runtime fallback (optional)
+            mkdir -p ${{ github.workspace }}/app/src/main/assets/bin/
             cp /tmp/xz-install/lib/liblzma.so.5 ${{ github.workspace }}/app/src/main/assets/bin/
-            echo "liblzma.so.5 deployed!"
+            echo "liblzma.so.5 deployed to assets/bin/ (optional fallback)"
           else
-            echo "WARNING: liblzma.so.5 build failed!"
+            echo "NOTE: liblzma.so.5 build skipped (not needed - payload-dumper-go is static)"
+          fi
+          
+          # Verify payload-dumper-go is static (tidak perlu library external)
+          echo "=== Verifying payload-dumper-go ==="
+          PAYLOAD_BIN="${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/libpayload-dumper-go.so"
+          if [ -f "$PAYLOAD_BIN" ]; then
+            NEEDED=$(readelf -d "$PAYLOAD_BIN" 2>/dev/null | grep NEEDED | head -5)
+            if [ -z "$NEEDED" ]; then
+              echo "✓ payload-dumper-go is STATIC binary (no library dependencies)"
+            else
+              echo "⚠ payload-dumper-go has NEEDED libraries:"
+              echo "$NEEDED"
+            fi
           fi
         shell: bash
 

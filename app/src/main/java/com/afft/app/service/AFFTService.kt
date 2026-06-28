@@ -39,6 +39,11 @@ class AFFTService(private val context: Context) {
     private var _currentLogFile: File? = null
     val currentLogFile: File? get() = _currentLogFile
 
+    init {
+        // Inisialisasi log file saat service dibuat
+        try { initLogFile() } catch (_: Exception) {}
+    }
+
     private fun initLogFile() {
         try {
             val logsDir = File(getTempDir(), "logs")
@@ -100,6 +105,47 @@ class AFFTService(private val context: Context) {
     }
 
     fun getLogsDir(): File = File(getTempDir(), "logs")
+
+    /**
+     * Simpan semua log saat ini ke file di Downloads/AFFT/logs/
+     */
+    suspend fun saveCurrentLogToDownloads(): File? {
+        val logs = _logs.value
+        if (logs.isEmpty()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val downloadDir = File("/storage/emulated/0/Download/AFFT/logs")
+                downloadDir.mkdirs()
+                val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                val logFile = File(downloadDir, "afft_log_$timestamp.txt")
+                logFile.writeText(logs.joinToString("\n"))
+                addLog("[OK] Log tersimpan: ${logFile.absolutePath}")
+                logFile
+            } catch (e: Exception) {
+                addLog("[ERROR] Gagal simpan log: ${e.message}")
+                null
+            }
+        }
+    }
+
+    /**
+     * Hapus log file lama, sisakan hanya [maxFiles] terbaru
+     */
+    suspend fun clearOldLogs(maxFiles: Int = 20) {
+        withContext(Dispatchers.IO) {
+            try {
+                val logsDir = File(getTempDir(), "logs")
+                if (!logsDir.exists()) return@withContext
+                val files = logsDir.listFiles()
+                    ?.filter { it.name.endsWith(".txt") }
+                    ?.sortedByDescending { it.lastModified() } ?: return@withContext
+                if (files.size <= maxFiles) return@withContext
+                files.drop(maxFiles).forEach { file ->
+                    try { file.delete() } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     fun getFreeSpace(path: String): Long {
         return try {
@@ -467,7 +513,7 @@ class AFFTService(private val context: Context) {
             val binDir = BinaryManager.getBinDirectory(context)
             val localBinary = File(binDir, "payload-dumper-go")
             
-            // Jika binary sudah ada di assets/bin/, copy ke filesDir jika perlu
+            // Deploy payload-dumper-go dari assets jika perlu
             if (!localBinary.exists() || !localBinary.canExecute()) {
                 try {
                     context.assets.open("bin/payload-dumper-go").use { input ->
@@ -484,19 +530,38 @@ class AFFTService(private val context: Context) {
                 }
             }
             
+            // Juga deploy liblzma.so.5 jika ada di assets/bin/
+            val libLzmaFile = File(binDir, "liblzma.so.5")
+            if (!libLzmaFile.exists()) {
+                try {
+                    context.assets.open("bin/liblzma.so.5").use { input ->
+                        libLzmaFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    libLzmaFile.setReadable(true, false)
+                    addLog("[INFO] Deployed liblzma.so.5 dari assets ke ${libLzmaFile.absolutePath}")
+                } catch (e: Exception) {
+                    addLog("[WARN] liblzma.so.5 tidak tersedia di assets: ${e.message}")
+                }
+            }
+            
             if (!localBinary.exists()) {
                 addLog("[WARN] Binary tidak tersedia di assets maupun filesDir")
                 return null
             }
             
-            // Jalankan dengan LD_LIBRARY_PATH
+            // Jalankan dengan LD_LIBRARY_PATH yang mencakup binDir (tempat liblzma.so.5)
             val ldPath = "${context.applicationInfo.nativeLibraryDir}:${binDir.absolutePath}"
             addLog("[INFO] Fallback: menjalankan dari ${localBinary.absolutePath}")
             addLog("[INFO] LD_LIBRARY_PATH=$ldPath")
             
             val envVars = mapOf("LD_LIBRARY_PATH" to ldPath)
-            val fallbackResult = ShellExecutor.execute(
-                command = listOf(localBinary.absolutePath, inputFile.absolutePath, "-o",
+            // Gunakan ShellExecutor.executeBinary() yang memiliki fallback:
+            // direct -> linker64 -> sh -c (untuk mengatasi SELinux noexec)
+            val fallbackResult = ShellExecutor.executeBinary(
+                binaryPath = localBinary.absolutePath,
+                args = listOf(inputFile.absolutePath, "-o",
                     File(getTempDir(), "payload").absolutePath),
                 workingDir = getTempDir(),
                 envVars = envVars,

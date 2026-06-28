@@ -24,12 +24,18 @@ import java.util.Date
 import java.util.Locale
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
+import com.afft.app.ui.components.ColoredLogLine
 import com.afft.app.ui.FileManagerScreen
 import com.afft.app.ui.theme.*
 import com.afft.app.util.BinaryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -330,6 +336,9 @@ fun MainScreen(afftService: AFFTService) {
                         afftService = afftService,
                         logs = logs,
                         isRunning = isRunning
+                    )
+                    "logs" -> LogsViewerScreen(
+                        afftService = afftService
                     )
                 }
             }
