@@ -139,16 +139,16 @@ func (cr *cgoXzReader) Read(p []byte) (int, error) {
 					action = 1 // C.LZMA_FINISH
 				}
 
-				outCap := len(cr.outBuf)
+				var outCap C.size_t = C.size_t(len(cr.outBuf))
 				ret := C.decode_chunk(
 					&cr.dec,
 					(*C.uint8_t)(&cr.inBuf[0]),
 					C.size_t(n),
 					(*C.uint8_t)(&cr.outBuf[0]),
-					(*C.size_t)(&outCap),
+					&outCap,
 					C.int(action),
 				)
-				cr.outEnd = outCap
+				cr.outEnd = int(outCap)
 
 				if ret < 0 {
 					C.end_decoder(&cr.dec)
@@ -182,16 +182,16 @@ func (cr *cgoXzReader) Read(p []byte) (int, error) {
 			// srcEof with no bytes read
 			if cr.srcEof {
 				// Try LZMA_FINISH to flush any pending decoded data
-				outCap := len(cr.outBuf)
+				var outCap C.size_t = C.size_t(len(cr.outBuf))
 				ret := C.decode_chunk(
 					&cr.dec,
 					(*C.uint8_t)(nil),
 					C.size_t(0),
 					(*C.uint8_t)(&cr.outBuf[0]),
-					(*C.size_t)(&outCap),
+					&outCap,
 					C.int(1), // LZMA_FINISH
 				)
-				cr.outEnd = outCap
+				cr.outEnd = int(outCap)
 
 				if ret < 0 {
 					C.end_decoder(&cr.dec)
