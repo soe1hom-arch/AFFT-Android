@@ -32,6 +32,7 @@ import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
