@@ -123,22 +123,21 @@ jobs:
           export CGO_CFLAGS="-I$WORK_DIR/xz-install/include -O2"
           export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -l:liblzma.a -L$WORK_DIR/zstd/lib -l:libzstd.a"
 
+          # Use writable module cache so we can patch gozstd
+          export GOMODCACHE="$WORK_DIR/go-mod-cache"
+          mkdir -p "$GOMODCACHE"
+
           go mod tidy 2>&1
 
-          # Now fix gozstd: replace its Linux .a with our Android-compiled .a
-          MODCACHE=$(go env GOMODCACHE)
-          GOZSTD_DIR="$MODCACHE/github.com/valyala/gozstd@v1.21.1"
+          # Patch gozstd: replace its Linux GLIBC .a with Android-compiled .a
+          GOZSTD_DIR="$GOMODCACHE/github.com/valyala/gozstd@v1.21.1"
           if [ -d "$GOZSTD_DIR" ]; then
-            echo "=== Patching gozstd module cache ==="
-            # Remove Linux pre-compiled .a files (GLIBC, incompatible with Android)
+            echo "=== Replacing gozstd .a files ==="
             rm -f "$GOZSTD_DIR/libzstd_linux_"*.a
-            # Copy our Android-compiled libzstd.a
             cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_android_arm64.a"
-            echo "Copied libzstd.a -> $GOZSTD_DIR/libzstd_android_arm64.a"
+            ls -la "$GOZSTD_DIR/libzstd_"*.a
           else
-            echo "WARNING: gozstd directory not found at $GOZSTD_DIR"
-            echo "Contents of $MODCACHE/github.com/valyala/:"
-            ls -la "$MODCACHE/github.com/valyala/" 2>/dev/null || echo "  (not found)"
+            echo "WARNING: gozstd not found at $GOZSTD_DIR"
           fi
 
           go build \
