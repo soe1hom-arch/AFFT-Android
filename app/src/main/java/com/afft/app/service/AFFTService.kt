@@ -89,7 +89,7 @@ class AFFTService(private val context: Context) {
     private fun isProgressBarLine(text: String): Boolean {
         // Lewati line yang hanya progress bar dari payload-dumper-go
         // Contoh: "system (821 MB) [========>       ] 45%"
-        return text.matches(Regex(".*\\[= >]+\\].*\\d+%"))
+        return text.matches(Regex(".*\\[[= >]+\\].*\\d+%"))
     }
 
     // Throttle mechanism: only update StateFlow every 300ms

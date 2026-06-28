@@ -63,7 +63,6 @@ class AFFTExtractService : Service() {
             .setProgress(0, 0, true)
             .build()
     }
-    }
 
     private fun acquireWakeLock() {
         try {
