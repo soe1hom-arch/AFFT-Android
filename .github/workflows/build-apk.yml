@@ -134,10 +134,8 @@ jobs:
 
           # Actually, use replace to point gozstd to our own build
           mkdir -p "$WORK_DIR/gozstd-wrap"
-          cat > "$WORK_DIR/gozstd-wrap/go.mod" << 'GOEOF'
-module github.com/valyala/gozstd
-go 1.18
-GOEOF
+          echo 'module github.com/valyala/gozstd' > "$WORK_DIR/gozstd-wrap/go.mod"
+          echo 'go 1.18' >> "$WORK_DIR/gozstd-wrap/go.mod"
           # Copy our built libzstd.a to the expected location
           GOZSTD_DIR=$(go env GOMODCACHE)/github.com/valyala/gozstd@v1.21.1
           if [ -d "$GOZSTD_DIR" ]; then
