@@ -21,6 +21,10 @@ class AFFTService(private val context: Context) {
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
+    // Buffer mutable untuk in-memory logs dengan batas aman (hindari O(n²) copy)
+    private val logBuffer = mutableListOf<String>()
+    private val maxInMemoryLogs = 1500
+
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
@@ -56,9 +60,17 @@ class AFFTService(private val context: Context) {
             android.util.Log.e("AFFTService", "Gagal init log file: ${e.message}")
         }
     }
-
     private fun addLog(text: String) {
-        _logs.value = _logs.value + listOf(text)
+
+        // Efficient O(1) add ke mutable buffer (hindari O(n) copy listOf)
+        logBuffer.add(text)
+        // Trim buffer jika melebihi batas (hapus paling lama)
+        if (logBuffer.size > maxInMemoryLogs + 200) {
+            val excess = logBuffer.size - maxInMemoryLogs
+            repeat(excess) { logBuffer.removeAt(0) }
+        }
+        // Snapshot untuk state
+        _logs.value = logBuffer.toList()
         android.util.Log.d("AFFTService", text)
         // Write to log file
         val logFile = _currentLogFile
@@ -79,6 +91,7 @@ class AFFTService(private val context: Context) {
 
     fun clearLogs() {
         _logs.value = emptyList()
+        logBuffer.clear()
         _progressMessage.value = ""
         initLogFile()
     }

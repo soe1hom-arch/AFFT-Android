@@ -27,7 +27,7 @@ fun TerminalView(
     val horizontalScrollState = rememberScrollState()
 
     LaunchedEffect(logs.size) {
-        scrollState.animateScrollTo(scrollState.maxValue)
+        scrollState.scrollTo(scrollState.maxValue)
     }
 
     Box(
