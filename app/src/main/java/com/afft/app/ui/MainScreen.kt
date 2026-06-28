@@ -760,3 +760,215 @@ private fun BulletText(text: String) {
         )
     }
 }
+
+@Composable
+fun LogsViewerScreen(afftService: AFFTService) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var logFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    var selectedLog by remember { mutableStateOf<File?>(null) }
+    var logContent by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+    
+    // Load log files
+    LaunchedEffect(Unit) {
+        logFiles = afftService.getLogFiles()
+        isLoading = false
+    }
+    
+    if (selectedLog != null) {
+        // View selected log file
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = { 
+                    selectedLog = null
+                    logContent = ""
+                }) {
+                    Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Kembali")
+                }
+                Text(
+                    selectedLog?.name ?: "",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    "${selectedLog?.let { file -> formatFileSizePublic(file.length()) } ?: ""}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Load content
+            LaunchedEffect(selectedLog) {
+                selectedLog?.let { file ->
+                    logContent = afftService.getLogContent(file)
+                }
+            }
+            
+            Card(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                ) {
+                    val lines = logContent.lines()
+                    items(lines.size) { index ->
+                        if (index < lines.size) {
+                            ColoredLogLine(
+                                text = lines[index],
+                                modifier = Modifier.padding(vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        afftService.saveCurrentLogToDownloads()
+                    }
+                }) {
+                    Icon(Icons.Default.SaveAlt, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Simpan ke Downloads")
+                }
+            }
+        }
+    } else {
+        // List log files
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Log Files",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontFamily = FontFamily.Monospace
+                )
+                Row {
+                    // Refresh button
+                    IconButton(onClick = {
+                        isLoading = true
+                        scope.launch {
+                            logFiles = afftService.getLogFiles()
+                            isLoading = false
+                        }
+                    }) {
+                        Icon(Icons.Default.Refresh, "Refresh")
+                    }
+                    // Clear old logs
+                    IconButton(onClick = {
+                        scope.launch {
+                            afftService.clearOldLogs(20)
+                            logFiles = afftService.getLogFiles()
+                        }
+                    }) {
+                        Icon(Icons.Default.CleaningServices, "Clean Old")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Folder: ${afftService.getLogsDir().absolutePath}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (logFiles.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.TextSnippet,
+                            null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Belum ada log file",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Jalankan operasi terlebih dahulu",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(logFiles.size) { index ->
+                        val file = logFiles[index]
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable {
+                                    selectedLog = file
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        file.name,
+                                        fontFamily = FontFamily.Monospace,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        formatFileSizePublic(file.length()),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatFileSizePublic(size: Long): String {
+    return when {
+        size < 1024 -> "$size B"
+        size < 1024 * 1024 -> "${size / 1024} KB"
+        size < 1024 * 1024 * 1024 -> "${"%.1f".format(size.toDouble() / (1024 * 1024))} MB"
+        else -> "${"%.2f".format(size.toDouble() / (1024 * 1024 * 1024))} GB"
+    }
+}
