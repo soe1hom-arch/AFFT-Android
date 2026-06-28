@@ -313,8 +313,9 @@ object ShellExecutor {
                 errorThread.join(2000)
                 return@withContext CommandResult(exitCode = -2, output = output.toList(), errorOutput = errorOutput.toList())
             }
+            exitCode = process.exitValue()
         } else {
-            process.waitFor()
+            exitCode = process.waitFor()
         }
         outputThread.join()
         errorThread.join()
