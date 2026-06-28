@@ -558,7 +558,7 @@ class AFFTService(private val context: Context) {
             addLog("[INFO] LD_LIBRARY_PATH=$ldLibraryPath")
             
             val cores = Runtime.getRuntime().availableProcessors()
-            val concurrency = maxOf(2, cores / 2)
+            val concurrency = 1  // sequential (I/O contention fix)
             addLog("[INFO] CPU cores: $cores, concurrency: -c $concurrency")
             // Gunakan nice untuk prioritas CPU lebih tinggi (fallback jika gagal)
             val extractCmd = try {
@@ -683,7 +683,7 @@ class AFFTService(private val context: Context) {
             // Gunakan ShellExecutor.executeBinary() yang memiliki fallback:
             // direct -> linker64 -> sh -c (untuk mengatasi SELinux noexec)
             val cores = Runtime.getRuntime().availableProcessors()
-            val concurrency = maxOf(2, cores / 2)
+            val concurrency = 1  // sequential (I/O contention fix)
             addLog("[INFO] Fallback concurrency: -c $concurrency")
             val fallbackResult = ShellExecutor.executeBinary(
                 binaryPath = localBinary.absolutePath,
