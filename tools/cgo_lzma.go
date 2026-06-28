@@ -185,9 +185,9 @@ func (cr *cgoXzReader) Read(p []byte) (int, error) {
 				outCap := len(cr.outBuf)
 				ret := C.decode_chunk(
 					&cr.dec,
-					(*C.uint8)(nil),
+					(*C.uint8_t)(nil),
 					C.size_t(0),
-					(*C.uint8)(&cr.outBuf[0]),
+					(*C.uint8_t)(&cr.outBuf[0]),
 					(*C.size_t)(&outCap),
 					C.int(1), // LZMA_FINISH
 				)
