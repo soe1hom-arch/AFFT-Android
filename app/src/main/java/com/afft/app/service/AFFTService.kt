@@ -32,6 +32,17 @@ class AFFTService(private val context: Context) {
     private val _progressMessage = MutableStateFlow("")
     val progressMessage: StateFlow<String> = _progressMessage.asStateFlow()
 
+    // Progress percentage untuk UI (0-100)
+    private val _progressPercent = MutableStateFlow(0)
+    val progressPercent: StateFlow<Int> = _progressPercent.asStateFlow()
+
+    // Jumlah total partition yang akan diekstrak
+    private val _totalPartitions = MutableStateFlow(0)
+    
+    // Nama partition saat ini yang sedang diekstrak
+    private val _currentPartition = MutableStateFlow("")
+    val currentPartition: StateFlow<String> = _currentPartition.asStateFlow()
+
     private var debugMode = false
 
     fun toggleDebug() {
@@ -85,9 +96,43 @@ class AFFTService(private val context: Context) {
     }
     // Filter progress bar lines (noise reduction)
     private fun isProgressBarLine(text: String): Boolean {
-        // Lewati line yang hanya progress bar dari payload-dumper-go
+        // Lewati ANSI escape sequences dari mpb progress bar
+        if (text.contains("\u001b[")) return true
+        // Lewati line kosong atau hanya kontrol karakter
+        if (text.isBlank()) return true
+        // Lewati format progress bar standard
         // Contoh: "system (821 MB) [========>       ] 45%"
-        return text.matches(Regex(".*\\[[= >]+\\].*\\d+%"))
+        return text.matches(Regex(""".*\[[= >]+\].*\d+%"""))
+    }
+
+    // Parse progress dari stdout payload-dumper-go untuk StateFlow
+    private fun parsePayloadProgress(raw: String) {
+        // Hapus ANSI escape sequences dari line
+        val clean = raw.replace(Regex("\u001b\\[[0-9;]*[a-zA-Z]"), "").trim()
+        if (clean.isEmpty()) return
+
+        // Progress bar: "system (821 MB) [========>       ] 45%"
+        val progressRegex = Regex("""([a-zA-Z_0-9.-]+)\s+\([^)]+\)\s*\[([=> ]+)\]\s*(\d+)%""")
+        val match = progressRegex.find(clean)
+        if (match != null) {
+            _currentPartition.value = match.groupValues[1]
+            _progressPercent.value = match.groupValues[3].toIntOrNull() ?: 0
+            return
+        }
+
+        // "Found partitions: system, product, vendor, ..."
+        if (clean.contains("Found partitions:", ignoreCase = true)) {
+            val parts = clean.substringAfter(":").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            if (parts.isNotEmpty()) {
+                _totalPartitions.value = parts.size
+            }
+            return
+        }
+
+        // "Extracting partition_name" fallback
+        Regex("""[Ee]xtracting\s+([a-zA-Z_0-9.-]+)""").find(clean)?.let {
+            _currentPartition.value = it.groupValues[1]
+        }
     }
 
     // Throttle mechanism: only update StateFlow every 300ms
@@ -138,6 +183,8 @@ class AFFTService(private val context: Context) {
         _logs.value = emptyList()
         logBuffer.clear()
         _progressMessage.value = ""
+        _progressPercent.value = 0
+        _currentPartition.value = ""
         initLogFile()
     }
 
@@ -580,7 +627,10 @@ class AFFTService(private val context: Context) {
                 command = extractCmd,
                 workingDir = getTempDir(),
                 envVars = mapOf("LD_LIBRARY_PATH" to ldLibraryPath),
-                onProgress = { addLog(it) },
+                onProgress = { line ->
+                    parsePayloadProgress(line)
+                    addLog(line)
+                },
                 timeoutMillis = 1800000L
             )
 
@@ -590,6 +640,12 @@ class AFFTService(private val context: Context) {
                 return OperationResult(false, "Extract Payload", "Timeout: proses tidak selesai dalam 30 menit")
             } else if (result.exitCode == 0) {
                 addLog("[OK] Payload extracted successfully")
+                // Set progress to 100% after success
+                _progressPercent.value = 100
+                val outputDir = File(getTempDir(), "Payload")
+                val imgCount = outputDir.listFiles()?.filter { it.extension == "img" }?.size ?: 0
+                _currentPartition.value = "Done ($imgCount img files)"
+                
                 OperationResult(true, "Extract Payload", "Payload extracted successfully",
                     File(getTempDir(), "Payload").absolutePath)
             } else {

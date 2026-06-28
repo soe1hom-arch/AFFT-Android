@@ -30,38 +30,22 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun ProcessingOverlay(
     isRunning: Boolean,
     message: String = "Processing...",
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    progressPercent: Float? = null  // null = indeterminate, 0f-100f = determinate
 ) {
     if (isRunning) {
-        val infiniteTransition = rememberInfiniteTransition(label = "spinner")
-        val angle by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1200),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "angle"
-        )
-        val arcProgress by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(600, delayMillis = 600),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "arcLen"
-        )
-
-        // Capture color values BEFORE entering Canvas draw scope
         val primaryColor = MaterialTheme.colorScheme.primary
         val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+        val onSurfaceColor = MaterialTheme.colorScheme.onSurface
 
         Column(
             modifier = modifier
@@ -70,61 +54,117 @@ fun ProcessingOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            // Bagian atas: spinner + message
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                // Custom Canvas spinner (avoids Material3 CircularProgressIndicator internal keyframes crash)
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Canvas(modifier = Modifier.size(28.dp)) {
-                        val sweepAngle = 60f + arcProgress * 240f
-                        drawArc(
-                            color = primaryColor,
-                            startAngle = angle,
-                            sweepAngle = sweepAngle,
-                            useCenter = false,
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
-                            topLeft = Offset.Zero,
-                            size = Size(size.width, size.height)
-                        )
+                if (progressPercent == null) {
+                    // Indeterminate spinner
+                    val infiniteTransition = rememberInfiniteTransition(label = "spinner")
+                    val angle by infiniteTransition.animateFloat(
+                        initialValue = 0f, targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1200), repeatMode = RepeatMode.Restart
+                        ), label = "angle"
+                    )
+                    val arcProgress by infiniteTransition.animateFloat(
+                        initialValue = 0f, targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(600, delayMillis = 600), repeatMode = RepeatMode.Restart
+                        ), label = "arcLen"
+                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Canvas(modifier = Modifier.size(28.dp)) {
+                            val sweepAngle = 60f + arcProgress * 240f
+                            drawArc(
+                                color = primaryColor,
+                                startAngle = angle, sweepAngle = sweepAngle,
+                                useCenter = false,
+                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                                topLeft = Offset.Zero,
+                                size = Size(size.width, size.height)
+                            )
+                        }
                     }
+                } else {
+                    // Determinate: tunjukkan persentase
+                    Text(
+                        text = "${progressPercent.toInt()}%",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryColor,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = onSurfaceColor
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Custom horizontal progress bar (avoids Material3 LinearProgressIndicator internal keyframes crash)
-            val barProgress by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1500),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "barProgress"
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .background(surfaceVariantColor, RoundedCornerShape(3.dp))
-            ) {
-                Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
-                    val barWidth = size.width * barProgress
-                    drawRoundRect(
-                        color = primaryColor,
-                        topLeft = Offset.Zero,
-                        size = Size(barWidth, size.height),
-                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
-                    )
+            // Progress bar (battery style)
+            val barProgress = if (progressPercent != null) progressPercent / 100f else 0f
+            
+            if (progressPercent != null) {
+                // Determinate: battery-style bar with percentage fill
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(20.dp)
+                        .background(surfaceVariantColor, RoundedCornerShape(10.dp))
+                ) {
+                    // Filled portion
+                    Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
+                        val barWidth = size.width * barProgress
+                        if (barWidth > 0) {
+                            drawRoundRect(
+                                color = primaryColor,
+                                topLeft = Offset.Zero,
+                                size = Size(barWidth, size.height),
+                                cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
+                            )
+                        }
+                    }
+                    // Percentage text in the middle of the bar
+                }
+                // Mini percentage label below bar
+                Text(
+                    text = "${progressPercent.toInt()}% complete",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            } else {
+                // Indeterminate animated bar
+                val infiniteTransition = rememberInfiniteTransition(label = "bar")
+                val barProgressAnim by infiniteTransition.animateFloat(
+                    initialValue = 0f, targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1500), repeatMode = RepeatMode.Reverse
+                    ), label = "barProgress"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .background(surfaceVariantColor, RoundedCornerShape(3.dp))
+                ) {
+                    Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
+                        val barWidth = size.width * barProgressAnim
+                        drawRoundRect(
+                            color = primaryColor,
+                            topLeft = Offset.Zero,
+                            size = Size(barWidth, size.height),
+                            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                        )
+                    }
                 }
             }
         }
