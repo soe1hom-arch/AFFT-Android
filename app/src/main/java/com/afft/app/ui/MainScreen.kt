@@ -48,6 +48,8 @@ fun MainScreen(afftService: AFFTService) {
     val logs by afftService.logs.collectAsState()
     val isRunning by afftService.isRunning.collectAsState()
     val progressMessage by afftService.progressMessage.collectAsState()
+    val progressPercent by afftService.progressPercent.collectAsState()
+    val currentPartition by afftService.currentPartition.collectAsState()
     var binariesReady by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var aboutEnglish by remember { mutableStateOf(false) }
@@ -157,7 +159,9 @@ fun MainScreen(afftService: AFFTService) {
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 8.dp),
-                    maxHeight = 1000
+                    maxHeight = 1000,
+                    progressPercent = progressPercent,
+                    currentPartition = currentPartition
                 )
 
                 Row(

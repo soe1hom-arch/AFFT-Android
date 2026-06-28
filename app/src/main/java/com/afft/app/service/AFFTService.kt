@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
@@ -670,6 +671,10 @@ class AFFTService(private val context: Context) {
                 OperationResult(false, "Extract Payload",
                     "payload-dumper-go failed (exit ${result.exitCode})")
             }
+        } catch (e: CancellationException) {
+            // Coroutine cancelled (user left screen), ignore
+            addLog("[INFO] Extraction cancelled")
+            OperationResult(false, "Extract Payload", "Cancelled")
         } catch (e: Exception) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Extract Payload", e.message ?: "Unknown error")
