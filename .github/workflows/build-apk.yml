@@ -21,6 +21,25 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build static payload-dumper-go for Android
+        run: |
+          echo "Cloning payload-dumper-go source..."
+          git clone --depth=1 https://github.com/ssut/payload-dumper-go.git /tmp/payload-dumper-go
+          cd /tmp/payload-dumper-go
+          echo "Building static binary for android/arm64..."
+          GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o payload-dumper-go .
+          echo "Build complete!"
+          file payload-dumper-go
+          # Replace binary in both locations
+          cp payload-dumper-go ${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/libpayload-dumper-go.so
+          cp payload-dumper-go ${{ github.workspace }}/app/src/main/assets/bin/payload-dumper-go
+          echo "Binary replaced successfully!"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:

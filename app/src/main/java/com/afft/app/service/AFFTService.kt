@@ -359,6 +359,13 @@ class AFFTService(private val context: Context) {
 
             updateProgress("Extracting payload, mohon tunggu...")
             addLog("Running payload-dumper-go...")
+            
+            // Set LD_LIBRARY_PATH untuk memastikan library (liblzma.so.5) ditemukan
+            // saat dijalankan dari nativeLibraryDir (jniLibs)
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val binDir = BinaryManager.getBinDirectory(context).absolutePath
+            val ldLibraryPath = "$nativeLibDir:$binDir"
+            
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(payloadDumper, inputFile.absolutePath, "-o",
                     File(getTempDir(), "payload").absolutePath),
@@ -372,6 +379,23 @@ class AFFTService(private val context: Context) {
                     File(getTempDir(), "payload").absolutePath)
             } else {
                 addLog("[FAIL] payload-dumper-go exited with code ${result.exitCode}")
+                result.errorOutput.forEach { addLog("[ERROR] $it") }
+                
+                // Cek apakah error karena missing library
+                val linkError = result.errorOutput.any {
+                    it.contains("CANNOT LINK", ignoreCase = true) ||
+                    it.contains("library.*not found".toRegex())
+                }
+                if (linkError) {
+                    addLog("[INFO] Mencoba fallback: deploy binary dari assets + LD_LIBRARY_PATH...")
+                    addLog("[INFO] Pastikan payload-dumper-go adalah static binary (CGO_ENABLED=0)")
+                    addLog("[INFO] atau bundle liblzma.so.5 di nativeLibraryDir")
+                    
+                    // Coba deploy dan jalankan dari filesDir dengan LD_LIBRARY_PATH
+                    val fallbackResult = runPayloadDumperFallback(inputFile)
+                    if (fallbackResult != null) return fallbackResult
+                }
+                
                 OperationResult(false, "Extract Payload",
                     "payload-dumper-go failed (exit ${result.exitCode})")
             }
@@ -380,6 +404,66 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Extract Payload", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+        }
+    }
+
+    /**
+     * Fallback: deploy payload-dumper-go dari assets ke filesDir dan jalankan
+     * dengan LD_LIBRARY_PATH yang sesuai.
+     */
+    private suspend fun runPayloadDumperFallback(inputFile: File): OperationResult? {
+        return try {
+            val binDir = BinaryManager.getBinDirectory(context)
+            val localBinary = File(binDir, "payload-dumper-go")
+            
+            // Jika binary sudah ada di assets/bin/, copy ke filesDir jika perlu
+            if (!localBinary.exists() || !localBinary.canExecute()) {
+                try {
+                    context.assets.open("bin/payload-dumper-go").use { input ->
+                        localBinary.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    localBinary.setExecutable(true, false)
+                    localBinary.setReadable(true, false)
+                    addLog("[INFO] Deployed payload-dumper-go dari assets ke ${localBinary.absolutePath}")
+                } catch (e: Exception) {
+                    addLog("[WARN] Gagal deploy dari assets: ${e.message}")
+                    return null
+                }
+            }
+            
+            if (!localBinary.exists()) {
+                addLog("[WARN] Binary tidak tersedia di assets maupun filesDir")
+                return null
+            }
+            
+            // Jalankan dengan LD_LIBRARY_PATH
+            val ldPath = "${context.applicationInfo.nativeLibraryDir}:${binDir.absolutePath}"
+            addLog("[INFO] Fallback: menjalankan dari ${localBinary.absolutePath}")
+            addLog("[INFO] LD_LIBRARY_PATH=$ldPath")
+            
+            val envVars = mapOf("LD_LIBRARY_PATH" to ldPath)
+            val fallbackResult = ShellExecutor.execute(
+                command = listOf(localBinary.absolutePath, inputFile.absolutePath, "-o",
+                    File(getTempDir(), "payload").absolutePath),
+                workingDir = getTempDir(),
+                envVars = envVars,
+                onOutput = { addLog(it) }
+            )
+            
+            if (fallbackResult.exitCode == 0) {
+                addLog("[OK] Payload extracted (fallback)")
+                return OperationResult(true, "Extract Payload", "Payload extracted (fallback)",
+                    File(getTempDir(), "payload").absolutePath)
+            }
+            
+            addLog("[FAIL] Fallback juga gagal (exit ${fallbackResult.exitCode})")
+            fallbackResult.errorOutput.forEach { addLog("[ERROR] $it") }
+            null
+        } catch (e: Exception) {
+            addLog("[WARN] Fallback error: ${e.message}")
+            null
         }
     }
 
@@ -840,61 +924,10 @@ class AFFTService(private val context: Context) {
 
             updateProgress("Repacking filesystem...")
 
-            if (makeExt4 != null) {
-                addLog("Running: make_ext4fs -s ${dirName}_repack.img $dirName/")
-                val sizeBytes = calculateDirSize(srcDir)
-                val partitionSize = ((sizeBytes * 1.25).toLong() + 4095) / 4096 * 4096
-                val result = ShellExecutor.executeWithProgress(
-                    command = listOf(
-                        makeExt4, "-s", "-l", partitionSize.toString(),
-                        outputFile.absolutePath, srcDir.absolutePath
-                    ),
-                    workingDir = getTempDir(),
-                    onProgress = { addLog(it) }
-                )
-
-                if (result.exitCode == 0 && outputFile.exists()) {
-                    addLog("[OK] Repacked ext4: ${outputFile.name} (${outputFile.length()} bytes)")
-                    copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
-                    OperationResult(true, "Repack Filesystem", "Repack ext4 selesai",
-                        outputFile.absolutePath)
-                } else {
-                    addLog("[FAIL] make_ext4fs failed (exit ${result.exitCode})")
-                    result.errorOutput.forEach { addLog("[ERROR] $it") }
-                    if (mkfsErofs != null) {
-                        addLog("[INFO] Mencoba mkfs.erofs dengan kompresi lz4hc...")
-                        if (outputFile.exists()) outputFile.delete()
-                        var erofsOk = repackErofs(
-                            mkfsErofs, outputFile, srcDir, fileContextsPath, "lz4hc,9"
-                        )
-                        if (erofsOk) {
-                            addLog("[OK] Repacked EROFS: ${outputFile.name}")
-                            copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
-                            OperationResult(true, "Repack Filesystem", "Repack EROFS selesai",
-                                outputFile.absolutePath)
-                        } else {
-                            addLog("[INFO] lz4hc gagal, mencoba tanpa kompresi...")
-                            if (outputFile.exists()) outputFile.delete()
-                            erofsOk = repackErofs(
-                                mkfsErofs, outputFile, srcDir, fileContextsPath, "none"
-                            )
-                            if (erofsOk) {
-                                addLog("[OK] Repacked EROFS (uncompressed): ${outputFile.name}")
-                                copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
-                                OperationResult(true, "Repack Filesystem",
-                                    "Repack EROFS (uncompressed) selesai", outputFile.absolutePath)
-                            } else {
-                                OperationResult(false, "Repack Filesystem",
-                                    "make_ext4fs & mkfs.erofs (lz4hc+none) all failed")
-                            }
-                        }
-                    } else {
-                        OperationResult(false, "Repack Filesystem",
-                            "make_ext4fs failed, mkfs.erofs not available")
-                    }
-                }
-            } else if (mkfsErofs != null) {
-                addLog("Running: mkfs.erofs -z lz4hc,9 -C 4096 ${dirName}_repack.img $dirName/")
+            // Prioritaskan mkfs.erofs untuk Android modern (EROFS)
+            // Fallback ke make_ext4fs untuk Android lama (ext4)
+            if (mkfsErofs != null) {
+                addLog("[INFO] Repack dengan mkfs.erofs -z lz4hc,9 -C 4096 ${dirName}_repack.img $dirName/")
                 var erofsOk = repackErofs(
                     mkfsErofs, outputFile, srcDir, fileContextsPath, "lz4hc,9"
                 )
@@ -915,10 +948,37 @@ class AFFTService(private val context: Context) {
                         OperationResult(true, "Repack Filesystem",
                             "Repack EROFS (uncompressed) selesai", outputFile.absolutePath)
                     } else {
-                        addLog("[FAIL] mkfs.erofs lz4hc dan none keduanya gagal")
-                        OperationResult(false, "Repack Filesystem",
-                            "mkfs.erofs failed (lz4hc and uncompressed)")
+                        addLog("[FAIL] mkfs.erofs lz4hc dan none gagal, fallback ke make_ext4fs...")
+                        if (outputFile.exists()) outputFile.delete()
+                        // Fallback ke make_ext4fs
+                        if (makeExt4 != null) {
+                            val fallbackOk = repackExt4(makeExt4, outputFile, srcDir)
+                            if (fallbackOk) {
+                                copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                                OperationResult(true, "Repack Filesystem",
+                                    "Repack ext4 (fallback) selesai", outputFile.absolutePath)
+                            } else {
+                                OperationResult(false, "Repack Filesystem",
+                                    "mkfs.erofs & make_ext4fs all failed")
+                            }
+                        } else {
+                            OperationResult(false, "Repack Filesystem",
+                                "mkfs.erofs failed, make_ext4fs not available")
+                        }
                     }
+                }
+                        } else if (makeExt4 != null) {
+                addLog("Running: make_ext4fs -s ${dirName}_repack.img $dirName/")
+                val repackOk = repackExt4(makeExt4, outputFile, srcDir)
+                if (repackOk) {
+                    addLog("[OK] Repacked ext4: ${outputFile.name} (${outputFile.length()} bytes)")
+                    copyResultToDownload(outputFile.absolutePath, "${dirName}_repack.img")
+                    OperationResult(true, "Repack Filesystem", "Repack ext4 selesai",
+                        outputFile.absolutePath)
+                } else {
+                    addLog("[FAIL] make_ext4fs gagal dan tidak ada mkfs.erofs sebagai fallback")
+                    OperationResult(false, "Repack Filesystem",
+                        "make_ext4fs failed, mkfs.erofs not available")
                 }
             } else {
                 addLog("[FAIL] Tidak ada binary repack (make_ext4fs, mkfs.erofs)")
@@ -993,6 +1053,39 @@ class AFFTService(private val context: Context) {
      * file_contexts diperlukan untuk menjaga hak akses (SELinux contexts)
      * saat me-repack dan mem-flash ke perangkat.
      */
+
+    /**
+     * Helper untuk menjalankan make_ext4fs dengan parameter yang benar.
+     * Digunakan sebagai fallback ketika mkfs.erofs tidak tersedia.
+     */
+    private suspend fun repackExt4(
+        makeExt4: String,
+        outputFile: File,
+        srcDir: File
+    ): Boolean {
+        if (outputFile.exists()) outputFile.delete()
+
+        val sizeBytes = calculateDirSize(srcDir)
+        val partitionSize = ((sizeBytes * 1.25).toLong() + 4095) / 4096 * 4096
+        addLog("[INFO] Menjalankan make_ext4fs -s -l $partitionSize ${outputFile.name} ${srcDir.name}/")
+
+        val result = ShellExecutor.executeWithProgress(
+            command = listOf(
+                makeExt4, "-s", "-l", partitionSize.toString(),
+                outputFile.absolutePath, srcDir.absolutePath
+            ),
+            workingDir = getTempDir(),
+            onProgress = { addLog(it) }
+        )
+
+        if (result.exitCode == 0 && outputFile.exists() && outputFile.length() > 0) {
+            addLog("[OK] make_ext4fs berhasil: ${outputFile.length()} bytes")
+            return true
+        }
+        addLog("[FAIL] make_ext4fs gagal (exit ${result.exitCode})")
+        result.errorOutput.forEach { addLog("[ERROR] $it") }
+        return false
+    }
     private fun findFileContexts(contentsDir: File, dirName: String): String? {
         val candidates = listOf(
             File(contentsDir, "file_contexts"),
