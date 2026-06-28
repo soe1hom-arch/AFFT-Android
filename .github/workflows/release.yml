@@ -179,7 +179,7 @@ jobs:
           ./gradlew assembleRelease
         shell: bash
         env:
-          KEYSTORE_PATH: "app/release-key.jks"
+          KEYSTORE_PATH: "release-key.jks"
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
