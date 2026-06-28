@@ -480,10 +480,15 @@ class AFFTService(private val context: Context) {
                     File(getTempDir(), "payload").absolutePath),
                 workingDir = getTempDir(),
                 envVars = mapOf("LD_LIBRARY_PATH" to ldLibraryPath),
-                onProgress = { addLog(it) }
+                onProgress = { addLog(it) },
+                timeoutMillis = 1800000L
             )
 
-            if (result.exitCode == 0) {
+            if (result.isTimeout) {
+                addLog("[TIMEOUT] Extract Payload: proses tidak selesai dalam 30 menit, dibatalkan")
+                addLog("[TIMEOUT] Perangkat mungkin kekurangan RAM atau sistem membekukan proses")
+                return OperationResult(false, "Extract Payload", "Timeout: proses tidak selesai dalam 30 menit")
+            } else if (result.exitCode == 0) {
                 addLog("[OK] Payload extracted successfully")
                 OperationResult(true, "Extract Payload", "Payload extracted successfully",
                     File(getTempDir(), "payload").absolutePath)
@@ -578,10 +583,14 @@ class AFFTService(private val context: Context) {
                     File(getTempDir(), "payload").absolutePath),
                 workingDir = getTempDir(),
                 envVars = envVars,
-                onOutput = { addLog(it) }
+                onOutput = { addLog(it) },
+                timeoutMillis = 1800000L
             )
             
-            if (fallbackResult.exitCode == 0) {
+            if (fallbackResult.isTimeout) {
+                addLog("[TIMEOUT] Fallback: proses tidak selesai dalam 30 menit, dibatalkan")
+                return OperationResult(false, "Extract Payload", "Timeout: fallback juga tidak selesai")
+            } else if (fallbackResult.exitCode == 0) {
                 addLog("[OK] Payload extracted (fallback)")
                 return OperationResult(true, "Extract Payload", "Payload extracted (fallback)",
                     File(getTempDir(), "payload").absolutePath)

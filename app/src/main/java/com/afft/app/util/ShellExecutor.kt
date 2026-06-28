@@ -1,6 +1,7 @@
 package com.afft.app.util
 
 import android.content.Context
+import java.util.concurrent.TimeUnit
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,7 +14,9 @@ data class CommandResult(
     val exitCode: Int,
     val output: List<String>,
     val errorOutput: List<String>
-)
+) {
+    val isTimeout: Boolean get() = exitCode == -2
+}
 
 object ShellExecutor {
 
@@ -92,16 +95,17 @@ object ShellExecutor {
         command: List<String>,
         workingDir: File? = null,
         envVars: Map<String, String>? = null,
-        onOutput: ((String) -> Unit)? = null
+        onOutput: ((String) -> Unit)? = null,
+        timeoutMillis: Long = 0L
     ): CommandResult {
         // Attempt 1: Direct execution
-        val result = runCommand(command, workingDir, envVars, onOutput)
+        val result = runCommand(command, workingDir, envVars, onOutput, timeoutMillis)
 
         // If process couldn't start (IOException, exitCode==-1) and the first arg is a file,
         // try fallback methods for native binary execution on Android 14+ where exec may be blocked.
         // Use isDynamicElf() to detect if the binary is dynamically linked (linker64-capable)
         // or statically linked (skip linker64, try sh -c directly).
-        if (result.exitCode == -1 && command.isNotEmpty()) {
+        if (!result.isTimeout && result.exitCode == -1 && command.isNotEmpty()) {
             val firstArg = command[0]
             val binaryFile = File(firstArg)
 
@@ -115,7 +119,8 @@ object ShellExecutor {
                 // directories that otherwise block direct execution.
                 if (isDynamic) {
                     val linkerCommand = listOf("/system/bin/linker64") + command
-                    val linkerResult = runCommand(linkerCommand, workingDir, envVars, onOutput)
+                    val linkerResult = runCommand(linkerCommand, workingDir, envVars, onOutput, timeoutMillis)
+                    if (linkerResult.isTimeout) return linkerResult
                     if (linkerResult.exitCode == 0) {
                         return linkerResult
                     }
@@ -127,7 +132,8 @@ object ShellExecutor {
                 // Last resort - try via sh -c wrapper
                 // Note: sh -c doesn't bypass SELinux, but may help with ProcessBuilder quirks
                 val shCommand = listOf("sh", "-c", command.joinToString(" "))
-                val shResult = runCommand(shCommand, workingDir, envVars, onOutput)
+                val shResult = runCommand(shCommand, workingDir, envVars, onOutput, timeoutMillis)
+                if (shResult.isTimeout) return shResult
                 if (shResult.exitCode == 0) {
                     return shResult
                 }
@@ -142,8 +148,9 @@ object ShellExecutor {
         command: List<String>,
         workingDir: File? = null,
         envVars: Map<String, String>? = null,
-        onProgress: ((String) -> Unit)? = null
-    ): CommandResult = execute(command, workingDir, envVars = envVars, onOutput = onProgress)
+        onProgress: ((String) -> Unit)? = null,
+        timeoutMillis: Long = 0L
+    ): CommandResult = execute(command, workingDir, envVars = envVars, onOutput = onProgress, timeoutMillis = timeoutMillis)
 
     fun buildBinaryCommand(
         context: Context,
@@ -173,7 +180,8 @@ object ShellExecutor {
         args: List<String>,
         workingDir: File? = null,
         envVars: Map<String, String>? = null,
-        onOutput: ((String) -> Unit)? = null
+        onOutput: ((String) -> Unit)? = null,
+        timeoutMillis: Long = 0L
     ): CommandResult {
         val binaryFile = File(binaryPath)
         val isExecutable = binaryFile.canExecute()
@@ -185,10 +193,11 @@ object ShellExecutor {
         if (isExecutable) {
             val directCommand = listOf(binaryPath) + args
             Log.d(TAG, "executeBinary: trying direct execution")
-            val result = runCommand(directCommand, workingDir, envVars, onOutput)
+            val result = runCommand(directCommand, workingDir, envVars, onOutput, timeoutMillis)
             if (result.exitCode == 0) {
                 return result
             }
+            if (result.isTimeout) return result
             if (result.exitCode == -1) {
                 Log.w(TAG, "executeBinary: direct execution failed with IO error, trying fallbacks")
             } else {
@@ -207,7 +216,8 @@ object ShellExecutor {
         if (isDynamic) {
             val linkerCommand = listOf("/system/bin/linker64", binaryPath) + args
             Log.d(TAG, "executeBinary: trying linker64: ${linkerCommand.joinToString(" ")}")
-            val linkerResult = runCommand(linkerCommand, workingDir, envVars, onOutput)
+            val linkerResult = runCommand(linkerCommand, workingDir, envVars, onOutput, timeoutMillis)
+            if (linkerResult.isTimeout) return linkerResult
             if (linkerResult.exitCode == 0) {
                 return linkerResult
             }
@@ -220,7 +230,8 @@ object ShellExecutor {
         Log.w(TAG, "executeBinary: trying sh -c fallback")
         val escapedArgs = args.joinToString(" ") { "'${it.replace("'", "'\''")}'" }
         val shCommand = listOf("sh", "-c", "$binaryPath $escapedArgs")
-        val shResult = runCommand(shCommand, workingDir, envVars, onOutput)
+        val shResult = runCommand(shCommand, workingDir, envVars, onOutput, timeoutMillis)
+        if (shResult.isTimeout) return shResult
         if (shResult.exitCode == 0) {
             return shResult
         }
@@ -233,7 +244,8 @@ object ShellExecutor {
         command: List<String>,
         workingDir: File? = null,
         envVars: Map<String, String>? = null,
-        onOutput: ((String) -> Unit)? = null
+        onOutput: ((String) -> Unit)? = null,
+        timeoutMillis: Long = 0L
     ): CommandResult = withContext(Dispatchers.IO) {
         Log.d(TAG, "Command: ${command.joinToString(" ")}")
 
@@ -291,7 +303,19 @@ object ShellExecutor {
         outputThread.start()
         errorThread.start()
 
-        val exitCode = process.waitFor()
+        val exitCode: Int
+        if (timeoutMillis > 0) {
+            val finished = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+            if (!finished) {
+                Log.w(TAG, "runCommand: TIMEOUT after ${timeoutMillis}ms, destroying process")
+                process.destroyForcibly()
+                outputThread.join(2000)
+                errorThread.join(2000)
+                return@withContext CommandResult(exitCode = -2, output = output.toList(), errorOutput = errorOutput.toList())
+            }
+        } else {
+            process.waitFor()
+        }
         outputThread.join()
         errorThread.join()
 
