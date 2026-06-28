@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import com.afft.app.service.AFFTExtractService
 
 class AFFTService(private val context: Context) {
 
@@ -39,6 +40,28 @@ class AFFTService(private val context: Context) {
     }
 
     fun isDebugMode(): Boolean = debugMode
+
+    // Foreground service untuk mencegah proses anak di-freeze oleh sistem
+    private var foregroundActive = false
+
+    private fun ensureForegroundRunning() {
+        if (!foregroundActive) {
+            foregroundActive = true
+            try {
+                AFFTExtractService.start(context)
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun ensureForegroundStopped() {
+        if (foregroundActive) {
+            foregroundActive = false
+            try {
+                AFFTExtractService.stop(context)
+            } catch (_: Exception) {}
+        }
+    }
+
 
     private var _currentLogFile: File? = null
     val currentLogFile: File? get() = _currentLogFile
@@ -456,6 +479,7 @@ class AFFTService(private val context: Context) {
 
     suspend fun extractPayload(inputFile: File): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         clearLogs()
         addLog("=== Extract payload.bin ===")
@@ -519,6 +543,7 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Extract Payload", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
@@ -618,6 +643,7 @@ class AFFTService(private val context: Context) {
 
     suspend fun unpackSuper(inputFile: File): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         _progressMessage.value = "Unpacking super.img..."
         clearLogs()
@@ -660,11 +686,13 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Unpack Super", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
     suspend fun repackSuper(): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         _progressMessage.value = "Repacking super.img..."
         clearLogs()
@@ -736,6 +764,7 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Repack Super", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
@@ -753,6 +782,7 @@ class AFFTService(private val context: Context) {
 
     suspend fun extractFilesystem(inputFile: File): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         _progressMessage.value = "Extracting filesystem..."
         clearLogs()
@@ -978,6 +1008,7 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Extract Filesystem", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
@@ -1018,6 +1049,7 @@ class AFFTService(private val context: Context) {
 
     suspend fun repackFilesystem(dirName: String): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         _progressMessage.value = "Repacking filesystem..."
         clearLogs()
@@ -1111,6 +1143,7 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Repack Filesystem", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
@@ -1235,6 +1268,7 @@ class AFFTService(private val context: Context) {
 
     suspend fun unpackBoot(inputFile: File, bootType: String): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         _progressMessage.value = "Unpacking $bootType..."
         clearLogs()
@@ -1278,11 +1312,13 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Unpack $bootType", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
     suspend fun repackBoot(bootType: String): OperationResult {
         ensureDirs()
+        ensureForegroundRunning()
         _isRunning.value = true
         _progressMessage.value = "Repacking $bootType..."
         clearLogs()
@@ -1341,6 +1377,7 @@ class AFFTService(private val context: Context) {
             OperationResult(false, "Repack $bootType", e.message ?: "Unknown error")
         } finally {
             _isRunning.value = false
+            ensureForegroundStopped()
         }
     }
 
@@ -1479,6 +1516,7 @@ class AFFTService(private val context: Context) {
                 result = OperationResult(false, "Export All", e.message ?: "Unknown error")
             } finally {
                 _isRunning.value = false
+            ensureForegroundStopped()
             }
             result
         }
@@ -1547,6 +1585,7 @@ class AFFTService(private val context: Context) {
                 result = OperationResult(false, "Export Selected", e.message ?: "Unknown error")
             } finally {
                 _isRunning.value = false
+            ensureForegroundStopped()
             }
             result
         }
