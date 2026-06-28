@@ -26,51 +26,48 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Install NDK & compile CGO-native payload-dumper-go
+      - name: Install NDK
         run: |
-          set -euo pipefail
-          # ─── Find NDK ─────────────────────────────────────────
           if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
-            NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
-            echo "Using cached NDK: $NDK_DIR"
+            echo "NDK cached: $(ls -d $ANDROID_HOME/ndk/*)"
           else
             echo "Installing NDK..."
             SDKMANAGER=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
             if [ -f "$SDKMANAGER" ]; then
               echo "y" | $SDKMANAGER --install "ndk;27.0.12077973" --sdk_root=$ANDROID_HOME 2>&1
-              NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
             else
-              echo "sdkmanager not found, downloading NDK directly..."
               curl -sLo /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r27-linux.zip"
               unzip -q /tmp/ndk.zip -d /tmp/
-              NDK_DIR=/tmp/android-ndk-r27
             fi
           fi
-          [ -z "$NDK_DIR" ] && { echo "ERROR: NDK not found!"; exit 1; }
+        shell: bash
 
+      - name: Compile native libs (liblzma + libzstd) for Android
+        run: |
+          set -euo pipefail
+          if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
+            NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
+          else
+            NDK_DIR=/tmp/android-ndk-r27
+          fi
           TOOLCHAIN=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64
           export PATH=$TOOLCHAIN/bin:$PATH
           CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
           AR=$TOOLCHAIN/bin/llvm-ar
           RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-          echo "Using toolchain: $TOOLCHAIN"
 
           WORK_DIR=/tmp/payload-build
           mkdir -p "$WORK_DIR"
-
-          # ─── [1] Build liblzma.a (static) ─────────────────────
-          echo "=== [1] Building liblzma.a ==="
           cd "$WORK_DIR"
+
+          # Build liblzma.a
           LZMA_VER="5.4.6"
-          if [ ! -f "xz-${LZMA_VER}.tar.xz" ]; then
-            curl -sLo "xz-${LZMA_VER}.tar.xz" \
-              "https://github.com/tukaani-project/xz/releases/download/v${LZMA_VER}/xz-${LZMA_VER}.tar.xz"
-          fi
+          curl -sLo "xz-${LZMA_VER}.tar.xz" \
+            "https://github.com/tukaani-project/xz/releases/download/v${LZMA_VER}/xz-${LZMA_VER}.tar.xz"
           rm -rf "xz-${LZMA_VER}"
           tar -xf "xz-${LZMA_VER}.tar.xz"
           cd "xz-${LZMA_VER}"
-          ./configure --host=aarch64-linux-android \
-            --prefix="$WORK_DIR/xz-install" \
+          ./configure --host=aarch64-linux-android --prefix="$WORK_DIR/xz-install" \
             CC="$CC" AR="$AR" RANLIB="$RANLIB" \
             --enable-static --disable-shared \
             --disable-xz --disable-xzdec --disable-lzmadec \
@@ -78,46 +75,46 @@ jobs:
             --disable-scripts --disable-doc --with-pic
           make -j$(nproc)
           make install
-          echo "=== liblzma.a built ==="
 
-          # ─── [2] Fetch payload-dumper-go ──────────────────────
-          echo "=== [2] Fetching payload-dumper-go ==="
+          # Build libzstd.a
           cd "$WORK_DIR"
-          rm -rf payload-dumper-go
-          git clone --depth=1 https://github.com/ssut/payload-dumper-go.git
-
-          # ─── [3] Apply CGO patch ──────────────────────────────
-          echo "=== [3] Applying CGO patch ==="
-          cd payload-dumper-go
-
-          # Hapus import pure-Go xz
-          sed -i '/"github.com\/ulikunitz\/xz"/d' payload.go
-          # Ganti xz.NewReader -> newXzReader
-          sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
-          # Hapus dependency xz dari go.mod
-          go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
-          # Copy CGO wrapper
-          cp ${{ github.workspace }}/tools/cgo_lzma.go ./
-
-          # ─── [4] Build zstd from source for Android ───────────
-          # gozstd ships pre-compiled libzstd_linux_arm64.a (GLIBC/Linux)
-          # which is incompatible with Android Bionic libc.
-          # We'll build libzstd from source using NDK and replace it.
-          echo "=== [4] Building zstd for Android ==="
-          cd "$WORK_DIR"
-          if [ ! -d "zstd" ]; then
-            git clone --depth=1 --branch v1.5.5 https://github.com/facebook/zstd.git
-          fi
+          git clone --depth=1 --branch v1.5.5 https://github.com/facebook/zstd.git
           cd zstd
           make clean 2>/dev/null || true
-          CC="$CC" AR="$AR" \
-          make -C lib libzstd.a -j$(nproc) 2>&1
-          echo "=== libzstd.a built ==="
+          CC="$CC" AR="$AR" make -C lib libzstd.a -j$(nproc) 2>&1
 
-          # ─── [5] Compile payload-dumper-go ────────────────────
-          echo "=== [5] Compiling payload-dumper-go ==="
-          cd "$WORK_DIR/payload-dumper-go"
+          echo "=== Native libs built ==="
+          ls -lh "$WORK_DIR/xz-install/lib/liblzma.a"
+          ls -lh "$WORK_DIR/zstd/lib/libzstd.a"
+        shell: bash
 
+      - name: Build CGO-native payload-dumper-go
+        run: |
+          set -euo pipefail
+          if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
+            NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
+          else
+            NDK_DIR=/tmp/android-ndk-r27
+          fi
+          TOOLCHAIN=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64
+          export PATH=$TOOLCHAIN/bin:$PATH
+          CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
+
+          WORK_DIR=/tmp/payload-build
+          cd "$WORK_DIR"
+
+          # Fetch payload-dumper-go
+          rm -rf payload-dumper-go
+          git clone --depth=1 https://github.com/ssut/payload-dumper-go.git
+          cd payload-dumper-go
+
+          # Apply CGO patch
+          sed -i '/"github.com\/ulikunitz\/xz"/d' payload.go
+          sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
+          go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
+          cp ${{ github.workspace }}/tools/cgo_lzma.go ./
+
+          # Prepare go.sum via go mod tidy (this will pull gozstd)
           export GO111MODULE=on
           export CGO_ENABLED=1
           export GOOS=android
@@ -126,24 +123,22 @@ jobs:
           export CGO_CFLAGS="-I$WORK_DIR/xz-install/include -O2"
           export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -l:liblzma.a -L$WORK_DIR/zstd/lib -l:libzstd.a"
 
-          # Generate go.sum via go mod tidy (this will pull gozstd too)
           go mod tidy 2>&1
 
-          # Now exclude gozstd - we use our own compiled libzstd.a instead
-          # go mod edit -exclude github.com/valyala/gozstd@v1.21.1
-
-          # Actually, use replace to point gozstd to our own build
-          mkdir -p "$WORK_DIR/gozstd-wrap"
-          echo 'module github.com/valyala/gozstd' > "$WORK_DIR/gozstd-wrap/go.mod"
-          echo 'go 1.18' >> "$WORK_DIR/gozstd-wrap/go.mod"
-          # Copy our built libzstd.a to the expected location
-          GOZSTD_DIR=$(go env GOMODCACHE)/github.com/valyala/gozstd@v1.21.1
+          # Now fix gozstd: replace its Linux .a with our Android-compiled .a
+          MODCACHE=$(go env GOMODCACHE)
+          GOZSTD_DIR="$MODCACHE/github.com/valyala/gozstd@v1.21.1"
           if [ -d "$GOZSTD_DIR" ]; then
-            echo "Replacing libzstd in gozstd module cache..."
-            # Remove the linux GLIBC-compiled .a
-            rm -f "$GOZSTD_DIR"/libzstd_linux_*.a
-            # Put our Android-compiled one
+            echo "=== Patching gozstd module cache ==="
+            # Remove Linux pre-compiled .a files (GLIBC, incompatible with Android)
+            rm -f "$GOZSTD_DIR/libzstd_linux_"*.a
+            # Copy our Android-compiled libzstd.a
             cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_android_arm64.a"
+            echo "Copied libzstd.a -> $GOZSTD_DIR/libzstd_android_arm64.a"
+          else
+            echo "WARNING: gozstd directory not found at $GOZSTD_DIR"
+            echo "Contents of $MODCACHE/github.com/valyala/:"
+            ls -la "$MODCACHE/github.com/valyala/" 2>/dev/null || echo "  (not found)"
           fi
 
           go build \
@@ -151,20 +146,16 @@ jobs:
             -o libpayload-dumper-go.so \
             .
 
-          # ─── [6] Verifikasi ───────────────────────────────────
-          echo "=== [6] Verifying binary ==="
+          # Verify
+          echo "=== Verifying ==="
           file libpayload-dumper-go.so
           NEEDED=$(readelf -d libpayload-dumper-go.so 2>/dev/null | grep NEEDED || true)
-          echo "Dynamic NEEDED: $NEEDED"
-          if echo "$NEEDED" | grep -q lzma; then
-            echo "❌ liblzma is a dynamic dependency!"
+          echo "$NEEDED"
+          if echo "$NEEDED" | grep -q "lzma\|zstd"; then
+            echo "❌ Native libraries still dynamic!"
             exit 1
-          else
-            echo "✓ liblzma statically embedded"
           fi
-          if echo "$NEEDED" | grep -q "zstd"; then
-            echo "✓ libzstd statically embedded"
-          fi
+          echo "✓ Native libs statically embedded"
 
           $TOOLCHAIN/bin/llvm-strip libpayload-dumper-go.so 2>/dev/null || true
 
@@ -172,7 +163,6 @@ jobs:
           mkdir -p "$JNILIBS"
           cp libpayload-dumper-go.so "$JNILIBS/libpayload-dumper-go.so"
           chmod 755 "$JNILIBS/libpayload-dumper-go.so"
-          echo "=== Deployed ==="
           ls -lh "$JNILIBS/libpayload-dumper-go.so"
         shell: bash
 
