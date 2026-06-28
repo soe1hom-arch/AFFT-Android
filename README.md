@@ -3,7 +3,7 @@
 **Android Firmware Full Toolkit** — Aplikasi Android untuk memodifikasi firmware Android.  
 Dibangun dengan **Kotlin + Jetpack Compose**.
 
-> **Author:** soe1hom-arch / Wandi  
+> **Developer:** soe1hom-arch / Wandi  
 > **Version:** 2.0.4  
 > **Lisensi:** Open-source
 
@@ -118,7 +118,7 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Credits
 
-Dikembangkan oleh **soe1hom-arch / Wandi**  
-— _AFFT: Alat Modifikasi Firmware Android untuk Semua_
+Developer/Dikembangkan oleh **soe1hom-arch / Wandi**  
+— _AFFT: Alat Modifikasi Firmware Android sederhana yang langsung bisa di install di hp android anda,tanpa perlu terminal linux
 
 Project open-source, gunakan dengan bijak.
