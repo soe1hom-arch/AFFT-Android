@@ -26,9 +26,10 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Install NDK & cross-compile liblzma.so.5 for Android ARM64
+      - name: Install NDK & compile CGO-native payload-dumper-go
         run: |
-          # --- Find/Cache NDK ---
+          set -euo pipefail
+          # ─── Find NDK ─────────────────────────────────────────
           if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
             NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
             echo "Using cached NDK: $NDK_DIR"
@@ -45,50 +46,104 @@ jobs:
               NDK_DIR=/tmp/android-ndk-r27
             fi
           fi
-          
           [ -z "$NDK_DIR" ] && { echo "ERROR: NDK not found!"; exit 1; }
+
           TOOLCHAIN=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64
           export PATH=$TOOLCHAIN/bin:$PATH
-          export CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
+          CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
+          AR=$TOOLCHAIN/bin/llvm-ar
+          RANLIB=$TOOLCHAIN/bin/llvm-ranlib
           echo "Using toolchain: $TOOLCHAIN"
-          
-          # --- Cross-compile liblzma.so.5 for Android ARM64 ---
-          echo "Downloading XZ Utils 5.4.6..."
-          curl -sLo /tmp/xz.tar.xz "https://github.com/tukaani-project/xz/releases/download/v5.4.6/xz-5.4.6.tar.xz"
-          tar -xf /tmp/xz.tar.xz -C /tmp/
-          cd /tmp/xz-5.4.6
-          
-          echo "Configuring for Android arm64..."
-          ./configure --host=aarch64-linux-android --prefix=/tmp/xz-install             CC=$CC --disable-static --enable-shared --disable-xz --disable-xzdec             --disable-lzmadec --disable-lzmainfo --disable-lzma-links             --disable-scripts --disable-doc 2>&1
-          
-          echo "Building liblzma..."
-          make -j$(nproc) 2>&1
-          make install 2>&1
-          
-          if [ -f /tmp/xz-install/lib/liblzma.so.5 ]; then
-            echo "=== liblzma.so.5 built successfully! ==="
-            file /tmp/xz-install/lib/liblzma.so.5
-            readelf -d /tmp/xz-install/lib/liblzma.so.5 2>/dev/null | grep NEEDED
-            # Copy ke assets/bin/ untuk runtime fallback (optional)
-            mkdir -p ${{ github.workspace }}/app/src/main/assets/bin/
-            cp /tmp/xz-install/lib/liblzma.so.5 ${{ github.workspace }}/app/src/main/assets/bin/
-            echo "liblzma.so.5 deployed to assets/bin/ (optional fallback)"
+
+          WORK_DIR=/tmp/payload-build
+          mkdir -p "$WORK_DIR"
+
+          # ─── [1] Build liblzma.a (static) ─────────────────────
+          echo "=== [1] Building liblzma.a (static) ==="
+          cd "$WORK_DIR"
+          LZMA_VER="5.4.6"
+          if [ ! -f "xz-${LZMA_VER}.tar.xz" ]; then
+            curl -sLo "xz-${LZMA_VER}.tar.xz" \
+              "https://github.com/tukaani-project/xz/releases/download/v${LZMA_VER}/xz-${LZMA_VER}.tar.xz"
+          fi
+          rm -rf "xz-${LZMA_VER}"
+          tar -xf "xz-${LZMA_VER}.tar.xz"
+          cd "xz-${LZMA_VER}"
+          ./configure --host=aarch64-linux-android \
+            --prefix="$WORK_DIR/xz-install" \
+            CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+            --enable-static --disable-shared \
+            --disable-xz --disable-xzdec --disable-lzmadec \
+            --disable-lzmainfo --disable-lzma-links \
+            --disable-scripts --disable-doc --with-pic
+          make -j$(nproc)
+          make install
+          echo "=== liblzma.a built at $WORK_DIR/xz-install/lib/liblzma.a ==="
+          ls -lh "$WORK_DIR/xz-install/lib/liblzma.a"
+
+          # ─── [2] Fetch payload-dumper-go ──────────────────────
+          echo "=== [2] Fetching payload-dumper-go source ==="
+          cd "$WORK_DIR"
+          rm -rf payload-dumper-go
+          git clone --depth=1 https://github.com/ssut/payload-dumper-go.git
+
+          # ─── [3] Apply CGO patch ──────────────────────────────
+          echo "=== [3] Applying CGO patch ==="
+          cd payload-dumper-go
+
+          # Hapus import pure-Go xz (line ~18)
+          sed -i '/"github.com\/ulikunitz\/xz"/d' payload.go
+
+          # Ganti xz.NewReader -> newXzReader (CGO native liblzma)
+          sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
+
+          # Hapus dependency xz dari go.mod
+          go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
+
+          # Salin CGO wrapper dari repo
+          cp ${{ github.workspace }}/tools/cgo_lzma.go ./
+
+          # ─── [4] Compile dengan CGO + static liblzma ──────────
+          echo "=== [4] Compiling with CGO + static liblzma ==="
+          export GO111MODULE=on
+          export CGO_ENABLED=1
+          export GOOS=android
+          export GOARCH=arm64
+          export CC="$CC"
+          export CGO_CFLAGS="-I$WORK_DIR/xz-install/include -O2"
+          export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -llzma"
+
+          # Bersihkan go.sum (akan di-regenerate)
+          rm -f go.sum
+          go mod tidy 2>&1
+
+          # Build: static link liblzma.a langsung ke binary
+          go build \
+            -ldflags="-linkmode=external -extldflags=-static -s -w" \
+            -tags="cgo" \
+            -o libpayload-dumper-go.so \
+            .
+
+          # ─── [5] Verifikasi ───────────────────────────────────
+          echo "=== [5] Verifying binary ==="
+          file libpayload-dumper-go.so
+          NEEDED=$(readelf -d libpayload-dumper-go.so 2>/dev/null | grep NEEDED || true)
+          if [ -z "$NEEDED" ]; then
+            echo "✓ SUCCESS: Static binary with native liblzma embedded!"
           else
-            echo "NOTE: liblzma.so.5 build skipped (not needed - payload-dumper-go is static)"
+            echo "⚠ Binary has dynamic NEEDED (will need liblzma.so.5):"
+            echo "$NEEDED"
           fi
-          
-          # Verify payload-dumper-go is static (tidak perlu library external)
-          echo "=== Verifying payload-dumper-go ==="
-          PAYLOAD_BIN="${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a/libpayload-dumper-go.so"
-          if [ -f "$PAYLOAD_BIN" ]; then
-            NEEDED=$(readelf -d "$PAYLOAD_BIN" 2>/dev/null | grep NEEDED | head -5 || true)
-            if [ -z "$NEEDED" ]; then
-              echo "✓ payload-dumper-go is STATIC binary (no library dependencies)"
-            else
-              echo "⚠ payload-dumper-go has NEEDED libraries:"
-              echo "$NEEDED"
-            fi
-          fi
+
+          $TOOLCHAIN/bin/llvm-strip libpayload-dumper-go.so 2>/dev/null || true
+
+          # Deploy ke jniLibs
+          JNILIBS="${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a"
+          mkdir -p "$JNILIBS"
+          cp libpayload-dumper-go.so "$JNILIBS/libpayload-dumper-go.so"
+          chmod 755 "$JNILIBS/libpayload-dumper-go.so"
+          echo "=== Deployed to jniLibs ==="
+          ls -lh "$JNILIBS/libpayload-dumper-go.so"
         shell: bash
 
       - name: Setup Gradle
