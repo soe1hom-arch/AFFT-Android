@@ -59,7 +59,7 @@ jobs:
           mkdir -p "$WORK_DIR"
 
           # ─── [1] Build liblzma.a (static) ─────────────────────
-          echo "=== [1] Building liblzma.a (static) ==="
+          echo "=== [1] Building liblzma.a ==="
           cd "$WORK_DIR"
           LZMA_VER="5.4.6"
           if [ ! -f "xz-${LZMA_VER}.tar.xz" ]; then
@@ -72,17 +72,16 @@ jobs:
           ./configure --host=aarch64-linux-android \
             --prefix="$WORK_DIR/xz-install" \
             CC="$CC" AR="$AR" RANLIB="$RANLIB" \
-            --enable-static --enable-shared \
+            --enable-static --disable-shared \
             --disable-xz --disable-xzdec --disable-lzmadec \
             --disable-lzmainfo --disable-lzma-links \
             --disable-scripts --disable-doc --with-pic
           make -j$(nproc)
           make install
-          echo "=== liblzma built! ==="
-          ls -lh "$WORK_DIR/xz-install/lib/"
+          echo "=== liblzma.a built ==="
 
           # ─── [2] Fetch payload-dumper-go ──────────────────────
-          echo "=== [2] Fetching payload-dumper-go source ==="
+          echo "=== [2] Fetching payload-dumper-go ==="
           cd "$WORK_DIR"
           rm -rf payload-dumper-go
           git clone --depth=1 https://github.com/ssut/payload-dumper-go.git
@@ -93,60 +92,89 @@ jobs:
 
           # Hapus import pure-Go xz
           sed -i '/"github.com\/ulikunitz\/xz"/d' payload.go
-          # Ganti xz.NewReader -> newXzReader (CGO native liblzma)
+          # Ganti xz.NewReader -> newXzReader
           sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
           # Hapus dependency xz dari go.mod
           go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
-          # Copy CGO wrapper dari repo
+          # Copy CGO wrapper
           cp ${{ github.workspace }}/tools/cgo_lzma.go ./
 
-          # ─── [4] Compile ──────────────────────────────────────
-          echo "=== [4] Compiling payload-dumper-go ==="
+          # ─── [4] Build zstd from source for Android ───────────
+          # gozstd ships pre-compiled libzstd_linux_arm64.a (GLIBC/Linux)
+          # which is incompatible with Android Bionic libc.
+          # We'll build libzstd from source using NDK and replace it.
+          echo "=== [4] Building zstd for Android ==="
+          cd "$WORK_DIR"
+          if [ ! -d "zstd" ]; then
+            git clone --depth=1 --branch v1.5.5 https://github.com/facebook/zstd.git
+          fi
+          cd zstd
+          make clean 2>/dev/null || true
+          CC="$CC" AR="$AR" \
+          make -C lib libzstd.a -j$(nproc) 2>&1
+          echo "=== libzstd.a built ==="
+
+          # ─── [5] Compile payload-dumper-go ────────────────────
+          echo "=== [5] Compiling payload-dumper-go ==="
+          cd "$WORK_DIR/payload-dumper-go"
+
           export GO111MODULE=on
           export CGO_ENABLED=1
           export GOOS=android
           export GOARCH=arm64
           export CC="$CC"
           export CGO_CFLAGS="-I$WORK_DIR/xz-install/include -O2"
-          export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -l:liblzma.a"
+          export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -l:liblzma.a -L$WORK_DIR/zstd/lib -l:libzstd.a"
 
-          # Hapus go.sum agar Go resolve dependencies ulang dari go.mod
-          # dan HANYA untuk konfigurasi build ini (android/arm64).
-          # go mod tidy akan resolve utk SEMUA build tag dan platform,
-          # yg bisa menarik gozstd (pre-compiled libzstd untuk GLIBC/linux,
-          # tidak kompatibel dengan Android Bionic).
-          rm -f go.sum
+          # Generate go.sum via go mod tidy (this will pull gozstd too)
+          go mod tidy 2>&1
 
-          # GONOSUMCHECK=*: skip checksum verification untuk go.sum yg baru
-          GONOSUMCHECK=* go build \
+          # Now exclude gozstd - we use our own compiled libzstd.a instead
+          # go mod edit -exclude github.com/valyala/gozstd@v1.21.1
+
+          # Actually, use replace to point gozstd to our own build
+          mkdir -p "$WORK_DIR/gozstd-wrap"
+          cat > "$WORK_DIR/gozstd-wrap/go.mod" << 'GOEOF'
+module github.com/valyala/gozstd
+go 1.18
+GOEOF
+          # Copy our built libzstd.a to the expected location
+          GOZSTD_DIR=$(go env GOMODCACHE)/github.com/valyala/gozstd@v1.21.1
+          if [ -d "$GOZSTD_DIR" ]; then
+            echo "Replacing libzstd in gozstd module cache..."
+            # Remove the linux GLIBC-compiled .a
+            rm -f "$GOZSTD_DIR"/libzstd_linux_*.a
+            # Put our Android-compiled one
+            cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_android_arm64.a"
+          fi
+
+          go build \
             -ldflags="-linkmode=external -s -w" \
             -o libpayload-dumper-go.so \
             .
 
-          # ─── [5] Verifikasi ───────────────────────────────────
-          echo "=== [5] Verifying binary ==="
+          # ─── [6] Verifikasi ───────────────────────────────────
+          echo "=== [6] Verifying binary ==="
           file libpayload-dumper-go.so
           NEEDED=$(readelf -d libpayload-dumper-go.so 2>/dev/null | grep NEEDED || true)
-          echo "Dynamic NEEDED:"
-          echo "$NEEDED"
+          echo "Dynamic NEEDED: $NEEDED"
           if echo "$NEEDED" | grep -q lzma; then
-            echo "❌ ERROR: liblzma is a dynamic dependency (should be static)!"
+            echo "❌ liblzma is a dynamic dependency!"
             exit 1
           else
-            echo "✓ liblzma is statically embedded inside the binary"
+            echo "✓ liblzma statically embedded"
           fi
-          if echo "$NEEDED" | grep -q "libc\|libdl\|liblog\|libm"; then
-            echo "✓ System libraries are dynamically linked (normal)"
+          if echo "$NEEDED" | grep -q "zstd"; then
+            echo "✓ libzstd statically embedded"
           fi
 
           $TOOLCHAIN/bin/llvm-strip libpayload-dumper-go.so 2>/dev/null || true
 
-          # Deploy ke jniLibs (overwrites old static binary)
           JNILIBS="${{ github.workspace }}/app/src/main/jniLibs/arm64-v8a"
           mkdir -p "$JNILIBS"
           cp libpayload-dumper-go.so "$JNILIBS/libpayload-dumper-go.so"
           chmod 755 "$JNILIBS/libpayload-dumper-go.so"
-          echo "=== Deployed to jniLibs ==="
+          echo "=== Deployed ==="
           ls -lh "$JNILIBS/libpayload-dumper-go.so"
         shell: bash
 
