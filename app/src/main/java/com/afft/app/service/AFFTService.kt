@@ -13,7 +13,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
-import java.io.FileOutputStream
+import kotlin.text.Regex
+import java.io.File
+import kotlin.text.RegexOutputStream
 import java.io.RandomAccessFile
 import com.afft.app.service.AFFTExtractService
 
@@ -83,7 +85,29 @@ class AFFTService(private val context: Context) {
             android.util.Log.e("AFFTService", "Gagal init log file: ${e.message}")
         }
     }
+    // Filter progress bar lines (noise reduction)
+    private fun isProgressBarLine(text: String): Boolean {
+        // Lewati line yang hanya progress bar dari payload-dumper-go
+        // Contoh: "system (821 MB) [========>       ] 45%"
+        return text.matches(Regex(".*\\[= >]+\\].*\\d+%"))
+    }
+
+    // Throttle mechanism: only update StateFlow every 300ms
+    private var lastStateUpdate = 0L
+    private val stateUpdateInterval = 300L
+
     private fun addLog(text: String) {
+        // Filter progress bar lines
+        if (isProgressBarLine(text)) {
+            // Still write to log file, but skip StateFlow update
+            val logFile = _currentLogFile
+            if (logFile != null) {
+                try {
+                    logFile.appendText("$text\n")
+                } catch (e: Exception) {}
+            }
+            return
+        }
 
         // Efficient O(1) add ke mutable buffer (hindari O(n) copy listOf)
         logBuffer.add(text)
@@ -92,8 +116,15 @@ class AFFTService(private val context: Context) {
             val excess = logBuffer.size - maxInMemoryLogs
             repeat(excess) { logBuffer.removeAt(0) }
         }
-        // Snapshot untuk state
-        _logs.value = logBuffer.toList()
+        
+        // Throttle StateFlow update (max every 300ms)
+        val now = System.currentTimeMillis()
+        if (now - lastStateUpdate >= stateUpdateInterval) {
+            // Snapshot untuk state
+            _logs.value = logBuffer.toList()
+            lastStateUpdate = now
+        }
+        
         android.util.Log.d("AFFTService", text)
         // Write to log file
         val logFile = _currentLogFile
@@ -400,7 +431,7 @@ class AFFTService(private val context: Context) {
         File(getTempDir(), "img").mkdirs()
         File(getTempDir(), "contents").mkdirs()
         File(getTempDir(), "repacked").mkdirs()
-        File(getTempDir(), "payload").mkdirs()
+        File(getTempDir(), "Payload").mkdirs()
         File(getTempDir(), "boot").mkdirs()
         File(getTempDir(), "boot_out").mkdirs()
         File(getTempDir(), "img_src").mkdirs()
@@ -492,6 +523,42 @@ class AFFTService(private val context: Context) {
             updateProgress("Extracting payload, mohon tunggu...")
             addLog("Running payload-dumper-go...")
             
+            // Deteksi mode eksekusi: cek ELF program headers untuk PT_INTERP
+            val isStaticBinary = try {
+                val elfFile = java.io.RandomAccessFile(payloadDumper, "r")
+                val magic = elfFile.readInt()
+                if (magic.toLong() != 0x464c457fL) { // ELF magic (ELF)
+                    elfFile.close()
+                    false
+                } else {
+                    val eiClass = elfFile.readByte()  // EI_CLASS at offset 4
+                    elfFile.skipBytes(11) // skip to e_phoff (offset 0x1C for 32-bit, 0x20 for 64-bit)
+                    val is64Bit = eiClass.toInt() == 2
+                    if (is64Bit) {
+                        elfFile.skipBytes(3) // adjust alignment
+                    }
+                    val ePhoff = if (is64Bit) elfFile.readLong() else elfFile.readInt().toLong()
+                    val ePhentsize = if (is64Bit) elfFile.readShort() else elfFile.readShort()
+                    val ePhnum = if (is64Bit) elfFile.readShort() else elfFile.readShort()
+                    
+                    // Scan program headers for PT_INTERP (type = 3)
+                    var hasInterp = false
+                    elfFile.seek(ePhoff)
+                    for (i in 0 until ePhnum) {
+                        val pType = elfFile.readInt()
+                        if (pType == 3) {
+                            hasInterp = true
+                            break
+                        }
+                        // Skip to next program header
+                        elfFile.skipBytes(ePhentsize.toInt() - 4)
+                    }
+                    elfFile.close()
+                    !hasInterp
+                }
+            } catch (e: Exception) { false }
+            addLog("[INFO] Mode: ${if (isStaticBinary) "static binary" else "dynamic binary (linker64)"}")
+            
             // Set LD_LIBRARY_PATH untuk memastikan liblzma.so.5 ditemukan
             // (dibutuhkan oleh payload-dumper-go yang dynamic link via CGO)
             val nativeLibDir = context.applicationInfo.nativeLibraryDir
@@ -499,9 +566,12 @@ class AFFTService(private val context: Context) {
             val ldLibraryPath = "$nativeLibDir:$binDir"
             addLog("[INFO] LD_LIBRARY_PATH=$ldLibraryPath")
             
+            val cores = Runtime.getRuntime().availableProcessors()
+            val concurrency = maxOf(2, cores - 2)
+            addLog("[INFO] CPU cores: $cores, concurrency: -c $concurrency")
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(payloadDumper, inputFile.absolutePath, "-o",
-                    File(getTempDir(), "payload").absolutePath),
+                    File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString()),
                 workingDir = getTempDir(),
                 envVars = mapOf("LD_LIBRARY_PATH" to ldLibraryPath),
                 onProgress = { addLog(it) },
@@ -515,7 +585,7 @@ class AFFTService(private val context: Context) {
             } else if (result.exitCode == 0) {
                 addLog("[OK] Payload extracted successfully")
                 OperationResult(true, "Extract Payload", "Payload extracted successfully",
-                    File(getTempDir(), "payload").absolutePath)
+                    File(getTempDir(), "Payload").absolutePath)
             } else {
                 addLog("[FAIL] payload-dumper-go exited with code ${result.exitCode}")
                 result.errorOutput.forEach { addLog("[ERROR] $it") }
@@ -542,6 +612,10 @@ class AFFTService(private val context: Context) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Extract Payload", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -605,7 +679,7 @@ class AFFTService(private val context: Context) {
             val fallbackResult = ShellExecutor.executeBinary(
                 binaryPath = localBinary.absolutePath,
                 args = listOf(inputFile.absolutePath, "-o",
-                    File(getTempDir(), "payload").absolutePath),
+                    File(getTempDir(), "Payload").absolutePath, "-c", concurrency.toString()),
                 workingDir = getTempDir(),
                 envVars = envVars,
                 onOutput = { addLog(it) },
@@ -618,7 +692,7 @@ class AFFTService(private val context: Context) {
             } else if (fallbackResult.exitCode == 0) {
                 addLog("[OK] Payload extracted (fallback)")
                 return OperationResult(true, "Extract Payload", "Payload extracted (fallback)",
-                    File(getTempDir(), "payload").absolutePath)
+                    File(getTempDir(), "Payload").absolutePath)
             }
             
             addLog("[FAIL] Fallback juga gagal (exit ${fallbackResult.exitCode})")
@@ -685,6 +759,10 @@ class AFFTService(private val context: Context) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Unpack Super", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -763,6 +841,10 @@ class AFFTService(private val context: Context) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Repack Super", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -1007,6 +1089,10 @@ class AFFTService(private val context: Context) {
             e.printStackTrace()
             OperationResult(false, "Extract Filesystem", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -1142,6 +1228,10 @@ class AFFTService(private val context: Context) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Repack Filesystem", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -1311,6 +1401,10 @@ class AFFTService(private val context: Context) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Unpack $bootType", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -1376,6 +1470,10 @@ class AFFTService(private val context: Context) {
             addLog("[ERROR] ${e.message}")
             OperationResult(false, "Repack $bootType", e.message ?: "Unknown error")
         } finally {
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
             _isRunning.value = false
             ensureForegroundStopped()
         }
@@ -1383,7 +1481,7 @@ class AFFTService(private val context: Context) {
 
     fun cleanOutput() {
         val defaultDirs = listOf(
-            "img", "contents", "repacked", "payload",
+            "img", "contents", "repacked", "Payload",
             "boot", "boot_out", "img_src", "filesystem_work", "logs"
         )
         cleanSelected(defaultDirs)
@@ -1471,7 +1569,7 @@ class AFFTService(private val context: Context) {
                     return@withContext OperationResult(false, "Export All", "Folder temp belum ada")
                 }
 
-                val subdirsToCopy = listOf("payload", "img", "repacked", "boot_out", "contents", "logs")
+                val subdirsToCopy = listOf("Payload", "img", "repacked", "boot_out", "contents", "logs")
                 var copiedCount = 0
                 for (subdir in subdirsToCopy) {
                     val src = File(tempDir, subdir)
@@ -1515,7 +1613,11 @@ class AFFTService(private val context: Context) {
                 addLog("[ERROR] Export gagal: ${e.message}")
                 result = OperationResult(false, "Export All", e.message ?: "Unknown error")
             } finally {
-                _isRunning.value = false
+                // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            _isRunning.value = false
             ensureForegroundStopped()
             }
             result
@@ -1584,7 +1686,11 @@ class AFFTService(private val context: Context) {
                 addLog("[ERROR] Export gagal: ${e.message}")
                 result = OperationResult(false, "Export Selected", e.message ?: "Unknown error")
             } finally {
-                _isRunning.value = false
+                // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            // Flush remaining logs
+            _logs.value = logBuffer.toList()
+            _isRunning.value = false
             ensureForegroundStopped()
             }
             result

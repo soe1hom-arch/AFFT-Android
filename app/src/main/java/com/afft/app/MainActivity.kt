@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
         // Request storage permissions
         requestStoragePermissions()
+        // Request notification permission (Android 13+)
+        requestNotificationPermission()
 
         setContent {
             AFFTTheme(darkTheme = true) {
@@ -42,7 +44,34 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     MainScreen(afftService = afftService)
+                    // Request POST_NOTIFICATIONS for Android 13+
+                    val notificationLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestPermission()
+                    ) { granted ->
+                        if (granted) {
+                            android.util.Log.d("MainActivity", "POST_NOTIFICATIONS granted")
+                        }
+                    }
+                    LaunchedEffect(Unit) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (ContextCompat.checkSelfPermission(this@MainActivity,
+                                    Manifest.permission.POST_NOTIFICATIONS) !=
+                                PackageManager.PERMISSION_GRANTED) {
+                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                    }
                 }
+            }
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                // Will be requested via Compose launcher in MainScreen
+                android.util.Log.d("MainActivity", "POST_NOTIFICATIONS not granted, will request via UI")
             }
         }
     }

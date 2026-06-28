@@ -8,14 +8,22 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 
 class AFFTExtractService : Service() {
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        acquireWakeLock()
+    }
+
+    override fun onDestroy() {
+        releaseWakeLock()
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -54,6 +62,31 @@ class AFFTExtractService : Service() {
             .setOngoing(true)
             .setProgress(0, 0, true)
             .build()
+    }
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "AFFT:ExtractWakeLock"
+            )
+            wakeLock?.acquire(10 * 60 * 1000L) // 10 menit timeout safety
+            android.util.Log.d("AFFTExtractService", "WakeLock acquired")
+        } catch (e: Exception) {
+            android.util.Log.e("AFFTExtractService", "Failed to acquire WakeLock: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.release()
+            wakeLock = null
+            android.util.Log.d("AFFTExtractService", "WakeLock released")
+        } catch (e: Exception) {
+            android.util.Log.e("AFFTExtractService", "Failed to release WakeLock: ${e.message}")
+        }
     }
 
     companion object {

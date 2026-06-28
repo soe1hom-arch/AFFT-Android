@@ -4,7 +4,7 @@
 Dibangun dengan **Kotlin + Jetpack Compose**.
 
 > **Author:** soe1hom-arch / Wandi  
-> **Version:** 2.0.2  
+> **Version:** 2.0.4  
 > **Lisensi:** Open-source
 
 ---
@@ -89,7 +89,7 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`
 └── temp/
     ├── img/            ← Image hasil repack / output
     ├── contents/       ← Hasil ekstraksi filesystem
-    ├── payload/        ← Hasil ekstraksi payload.bin
+    ├── Payload/        ← Hasil ekstraksi payload.bin
     ├── boot_out/       ← Hasil unpack boot images
     ├── repacked/       ← Hasil repack
     └── logs/           ← Log operasi

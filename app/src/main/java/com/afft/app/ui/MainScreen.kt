@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
 import com.afft.app.service.AFFTService
 import java.io.File
 import java.text.SimpleDateFormat
@@ -49,6 +50,7 @@ fun MainScreen(afftService: AFFTService) {
     val progressMessage by afftService.progressMessage.collectAsState()
     var binariesReady by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var aboutEnglish by remember { mutableStateOf(false) }
     var binaryStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scopeDrawer = rememberCoroutineScope()
@@ -250,8 +252,17 @@ fun MainScreen(afftService: AFFTService) {
                                 modifier = Modifier.padding(end = 8.dp)
                             )
                         }
-                        IconButton(onClick = { debugMode = !debugMode; afftService.toggleDebug() }) {
-                            Icon(Icons.Default.BugReport, "Debug")
+                        IconButton(onClick = {
+                            debugMode = !debugMode
+                            afftService.toggleDebug()
+                            Toast.makeText(context,
+                                if (!debugMode) "Debug mode: OFF" else "Debug mode: ON",
+                                Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(
+                                Icons.Default.BugReport, "Debug",
+                                tint = if (debugMode) TerminalError else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         IconButton(onClick = { showAboutDialog = true }) {
                             Icon(Icons.Default.Info, "About")
@@ -356,7 +367,7 @@ fun MainScreen(afftService: AFFTService) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("AFFT", fontWeight = FontWeight.Bold)
                         Text(
-                            "Android Firmware Full Toolkit",
+                            if (aboutEnglish) "Android Firmware Full Toolkit" else "Android Firmware Full Toolkit",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -367,19 +378,51 @@ fun MainScreen(afftService: AFFTService) {
                         modifier = Modifier.verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.Start
                     ) {
-                        Text("Tentang Aplikasi", fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "AFFT adalah alat modifikasi firmware Android yang " +
-                            "mendukung payload.bin, super.img, filesystem EROFS/ext4, " +
-                            "dan berbagai jenis boot image.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Tentang Pengembang", fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary)
+                        // Toggle EN/ID
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                if (aboutEnglish) "EN" else "ID",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Switch(
+                                checked = aboutEnglish,
+                                onCheckedChange = { aboutEnglish = it }
+                            )
+                        }
+                        
+                        if (aboutEnglish) {
+                            Text("About", fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "AFFT is an Android firmware modification tool that supports " +
+                                "payload.bin, super.img, EROFS/ext4 filesystem, " +
+                                "and various boot image types.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Developer", fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Text("Tentang Aplikasi", fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "AFFT adalah alat modifikasi firmware Android yang " +
+                                "mendukung payload.bin, super.img, filesystem EROFS/ext4, " +
+                                "dan berbagai jenis boot image.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Tentang Pengembang", fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row {
                             Icon(Icons.Default.Person, null, modifier = Modifier.size(18.dp),
@@ -402,12 +445,70 @@ fun MainScreen(afftService: AFFTService) {
                             Icon(Icons.Default.Star, null, modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Version 2.0.2",
+                            Text("Version 2.0.4",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // GitHub repository link
+                        Row(
+                            modifier = Modifier.clickable {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://github.com/soe1hom-arch/AFFT-Android")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Browser tidak tersedia", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                androidx.compose.ui.res.painterResource(com.afft.app.R.drawable.ic_github),
+                                null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "GitHub: soe1hom-arch/AFFT-Android",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // Report issue button
+                        Row(
+                            modifier = Modifier.clickable {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://github.com/soe1hom-arch/AFFT-Android/issues")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Browser tidak tersedia", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.BugReport, null, modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (aboutEnglish) "Report Issue" else "Laporkan Masalah",
+                                color = MaterialTheme.colorScheme.error,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("Status Binary", fontWeight = FontWeight.Bold,
+                        Text(
+                            if (aboutEnglish) "Binary Status" else "Status Binary",
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
                         binaryStatus.forEach { (name, ok) ->
@@ -425,19 +526,31 @@ fun MainScreen(afftService: AFFTService) {
                             }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("Fitur:", fontWeight = FontWeight.Bold,
+                        Text(
+                            if (aboutEnglish) "Features:" else "Fitur:",
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
-                        BulletText("Ekstrak & Repack payload.bin")
-                        BulletText("Unpack & Repack super.img (sparse)")
-                        BulletText("Ekstrak & Repack filesystem (EROFS/ext4)")
-                        BulletText("Unpack & Repack boot images (7 jenis)")
-                        BulletText("File Manager & Export ke Downloads")
+                        if (aboutEnglish) {
+                            BulletText("Extract & Repack payload.bin")
+                            BulletText("Unpack & Repack super.img (sparse)")
+                            BulletText("Extract & Repack filesystem (EROFS/ext4)")
+                            BulletText("Unpack & Repack boot images (7 types)")
+                            BulletText("File Manager & Export to Downloads")
+                        } else {
+                            BulletText("Ekstrak & Repack payload.bin")
+                            BulletText("Unpack & Repack super.img (sparse)")
+                            BulletText("Ekstrak & Repack filesystem (EROFS/ext4)")
+                            BulletText("Unpack & Repack boot images (7 jenis)")
+                            BulletText("File Manager & Export ke Downloads")
+                        }
                     }
                 },
                 confirmButton = {
                     Button(onClick = { showAboutDialog = false }) {
-                        Text("Tutup")
+                        Text(
+                            if (aboutEnglish) "Close" else "Tutup"
+                        )
                     }
                 }
             )
