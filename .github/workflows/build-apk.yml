@@ -133,6 +133,8 @@ jobs:
           GOZSTD_DIR="$GOMODCACHE/github.com/valyala/gozstd@v1.21.1"
           if [ -d "$GOZSTD_DIR" ]; then
             echo "=== Replacing gozstd .a files ==="
+            # Go downloads module files with read-only perms (0444)
+            chmod -R u+w "$GOZSTD_DIR"
             rm -f "$GOZSTD_DIR/libzstd_linux_"*.a
             cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_android_arm64.a"
             ls -la "$GOZSTD_DIR/libzstd_"*.a
