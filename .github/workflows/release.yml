@@ -10,107 +10,181 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'zulu'
-        java-version: '17'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.21'
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
 
-    - name: Install NDK
-      run: |
-        echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653"
+      - name: Install NDK
+        run: |
+          if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
+            echo "NDK cached: $(ls -d $ANDROID_HOME/ndk/*)"
+          else
+            echo "Installing NDK..."
+            SDKMANAGER=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
+            if [ -f "$SDKMANAGER" ]; then
+              echo "y" | $SDKMANAGER --install "ndk;27.0.12077973" --sdk_root=$ANDROID_HOME 2>&1
+            else
+              curl -sLo /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r27-linux.zip"
+              unzip -q /tmp/ndk.zip -d /tmp/
+            fi
+          fi
+        shell: bash
 
-    - name: Compile native libs (liblzma + libzstd) for Android
-      run: |
-        NDK_DIR=${ANDROID_HOME}/ndk/25.2.9519653
-        TOOLCHAIN=${NDK_DIR}/toolchains/llvm/prebuilt/linux-x86_64
-        TARGET=aarch64-linux-android
-        API=26
+      - name: Compile native libs (liblzma + libzstd) for Android
+        run: |
+          set -euo pipefail
+          if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
+            NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
+          else
+            NDK_DIR=/tmp/android-ndk-r27
+          fi
+          TOOLCHAIN=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64
+          export PATH=$TOOLCHAIN/bin:$PATH
+          CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
+          AR=$TOOLCHAIN/bin/llvm-ar
+          RANLIB=$TOOLCHAIN/bin/llvm-ranlib
 
-        # liblzma
-        cd /tmp
-        curl -sLO https://tukaani.org/xz/xz-5.6.2.tar.gz
-        tar xzf xz-5.6.2.tar.gz
-        cd xz-5.6.2
-        CC=${TOOLCHAIN}/bin/${TARGET}${API}-clang AR=${TOOLCHAIN}/bin/llvm-ar \
-          ./configure --host=${TARGET} --prefix=${PWD}/build --disable-shared --enable-static
-        make -j$(nproc)
-        make install
-        mkdir -p ${GITHUB_WORKSPACE}/native-libs
-        cp build/lib/liblzma.a ${GITHUB_WORKSPACE}/native-libs/
+          WORK_DIR=/tmp/payload-build
+          mkdir -p "$WORK_DIR"
+          cd "$WORK_DIR"
 
-        # libzstd
-        cd /tmp
-        git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd.git
-        cd zstd
-        CC=${TOOLCHAIN}/bin/${TARGET}${API}-clang AR=${TOOLCHAIN}/bin/llvm-ar \
-          make -j$(nproc) lib lib-mt
-        cp lib/libzstd.a ${GITHUB_WORKSPACE}/native-libs/
+          # Build liblzma.a
+          LZMA_VER="5.4.6"
+          curl -sLo "xz-${LZMA_VER}.tar.xz" \
+            "https://github.com/tukaani-project/xz/releases/download/v${LZMA_VER}/xz-${LZMA_VER}.tar.xz"
+          rm -rf "xz-${LZMA_VER}"
+          tar -xf "xz-${LZMA_VER}.tar.xz"
+          cd "xz-${LZMA_VER}"
+          ./configure --host=aarch64-linux-android --prefix="$WORK_DIR/xz-install" \
+            CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+            --enable-static --disable-shared \
+            --disable-xz --disable-xzdec --disable-lzmadec \
+            --disable-lzmainfo --disable-lzma-links \
+            --disable-scripts --disable-doc --with-pic
+          make -j$(nproc)
+          make install
 
-    - name: Build CGO-native payload-dumper-go
-      env:
-        CGO_ENABLED: "1"
-        GOOS: android
-        GOARCH: arm64
-        CC: ${ANDROID_HOME}/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
-        AR: ${ANDROID_HOME}/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-        CGO_LDFLAGS: "-L${GITHUB_WORKSPACE}/native-libs -llzma -lzstd -static -Wl,-Bstatic"
-        CGO_CFLAGS: "-I${GITHUB_WORKSPACE}/native-libs/include"
-      run: |
-        cd /tmp
-        git clone --depth 1 https://github.com/ssut/payload-dumper-go.git
-        cd payload-dumper-go
-        # Create writable module cache and replace gozstd .a for Android
-        export GOMODCACHE=/tmp/payload-build/go-mod-cache
-        mkdir -p ${GOMODCACHE}
-        go mod download
-        # Replace gozstd's linux .a with our Android-compiled version
-        GOZSTD_DIR=$(find ${GOMODCACHE} -path "*/gozstd*" -type d | head -1)
-        if [ -n "$GOZSTD_DIR" ]; then
-          cp ${GITHUB_WORKSPACE}/native-libs/libzstd.a ${GOZSTD_DIR}/libzstd_linux_arm64.a
-        fi
-        # Build with CGO static link
-        go build -tags netgo -ldflags '-extldflags "-static"' -o payload-dumper-go
-        file payload-dumper-go
-        # Copy to workspace
-        cp payload-dumper-go ${GITHUB_WORKSPACE}/app/src/main/assets/bin/
-        ls -la ${GITHUB_WORKSPACE}/app/src/main/assets/bin/
+          # Clean up xz source to free disk space
+          cd "$WORK_DIR"
+          rm -rf "xz-${LZMA_VER}" "xz-${LZMA_VER}.tar.xz"
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
+          # Build libzstd.a
+          git clone --depth=1 --branch v1.5.5 https://github.com/facebook/zstd.git
+          cd zstd
+          make clean 2>/dev/null || true
+          CC="$CC" AR="$AR" make -C lib libzstd.a -j$(nproc) 2>&1
 
-    - name: Decode Keystore
-      run: |
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release-key.jks
+          echo "=== Native libs built ==="
+          ls -lh "$WORK_DIR/xz-install/lib/liblzma.a"
+          ls -lh "$WORK_DIR/zstd/lib/libzstd.a"
+        shell: bash
 
-    - name: Build Release APK
-      run: |
-        ./gradlew assembleRelease
-      shell: bash
-      env:
-        KEYSTORE_PATH: "app/release-key.jks"
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Build CGO-native payload-dumper-go
+        run: |
+          set -euo pipefail
+          if [ -d "$ANDROID_HOME/ndk" ] && [ -n "$(ls -A $ANDROID_HOME/ndk 2>/dev/null)" ]; then
+            NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -1)
+          else
+            NDK_DIR=/tmp/android-ndk-r27
+          fi
+          TOOLCHAIN=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64
+          export PATH=$TOOLCHAIN/bin:$PATH
+          CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
 
-    - name: Clean Keystore
-      if: always()
-      run: |
-        if [ -f app/release-key.jks ]; then
-          rm -f app/release-key.jks
-        fi
+          WORK_DIR=/tmp/payload-build
+          cd "$WORK_DIR"
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: app/build/outputs/apk/release/app-release.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fetch payload-dumper-go
+          rm -rf payload-dumper-go
+          git clone --depth=1 https://github.com/ssut/payload-dumper-go.git
+          cd payload-dumper-go
+
+          # Apply CGO patch
+          sed -i '/"github.com/ulikunitz/xz"/d' payload.go
+          sed -i 's/xz\.NewReader(teeReader)/newXzReader(teeReader)/g' payload.go
+          go mod edit -droprequire github.com/ulikunitz/xz 2>/dev/null || true
+          cp ${{ github.workspace }}/tools/cgo_lzma.go ./
+
+          # Prepare go.sum via go mod tidy (this will pull gozstd)
+          export GO111MODULE=on
+          export CGO_ENABLED=1
+          export GOOS=android
+          export GOARCH=arm64
+          export CC="$CC"
+          export CGO_CFLAGS="-I$WORK_DIR/xz-install/include -O2"
+          export CGO_LDFLAGS="-L$WORK_DIR/xz-install/lib -l:liblzma.a -L$WORK_DIR/zstd/lib -l:libzstd.a"
+
+          # Use writable module cache so we can patch gozstd
+          export GOMODCACHE="$WORK_DIR/go-mod-cache"
+          mkdir -p "$GOMODCACHE"
+
+          go mod tidy 2>&1
+
+          # Patch gozstd: replace its Linux GLIBC .a with Android-compiled .a
+          GOZSTD_DIR="$GOMODCACHE/github.com/valyala/gozstd@v1.21.1"
+          if [ -d "$GOZSTD_DIR" ]; then
+            echo "=== Replacing gozstd .a files ==="
+            chmod -R u+w "$GOZSTD_DIR"
+            rm -f "$GOZSTD_DIR/libzstd_linux_arm64.a"
+            cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_linux_arm64.a"
+            ls -la "$GOZSTD_DIR/libzstd_linux_arm64.a"
+          else
+            echo "=== Searching gozstd dir... ==="
+            find "$GOMODCACHE" -name "gozstd*" -type d 2>/dev/null
+          fi
+
+          # Build with CGO static link
+          go build -tags netgo -ldflags '-extldflags "-static"' -o payload-dumper-go
+
+          echo "=== Binary built ==="
+          file payload-dumper-go
+          cp payload-dumper-go ${{ github.workspace }}/app/src/main/assets/bin/
+          ls -la ${{ github.workspace }}/app/src/main/assets/bin/
+
+          # Clean up Go build artifacts to free disk
+          rm -rf "$GOMODCACHE"
+          rm -rf "$WORK_DIR/payload-dumper-go"
+          rm -rf "$WORK_DIR/zstd"
+          rm -rf "$WORK_DIR/xz-install"
+        shell: bash
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release-key.jks
+
+      - name: Build Release APK
+        run: |
+          ./gradlew assembleRelease
+        shell: bash
+        env:
+          KEYSTORE_PATH: "app/release-key.jks"
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Clean Keystore
+        if: always()
+        run: |
+          if [ -f app/release-key.jks ]; then
+            rm -f app/release-key.jks
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
