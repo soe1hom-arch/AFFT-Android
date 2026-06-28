@@ -95,15 +95,8 @@ class AFFTService(private val context: Context) {
     private val stateUpdateInterval = 300L
 
     private fun addLog(text: String) {
-        // Filter progress bar lines
+        // Filter progress bar lines - skip completely (no UI, no log file)
         if (isProgressBarLine(text)) {
-            // Still write to log file, but skip StateFlow update
-            val logFile = _currentLogFile
-            if (logFile != null) {
-                try {
-                    logFile.appendText("$text\n")
-                } catch (e: Exception) {}
-            }
             return
         }
 
@@ -565,7 +558,7 @@ class AFFTService(private val context: Context) {
             addLog("[INFO] LD_LIBRARY_PATH=$ldLibraryPath")
             
             val cores = Runtime.getRuntime().availableProcessors()
-            val concurrency = maxOf(2, cores - 2)
+            val concurrency = maxOf(2, cores / 2)
             addLog("[INFO] CPU cores: $cores, concurrency: -c $concurrency")
             val result = ShellExecutor.executeWithProgress(
                 command = listOf(payloadDumper, inputFile.absolutePath, "-o",
@@ -675,7 +668,7 @@ class AFFTService(private val context: Context) {
             // Gunakan ShellExecutor.executeBinary() yang memiliki fallback:
             // direct -> linker64 -> sh -c (untuk mengatasi SELinux noexec)
             val cores = Runtime.getRuntime().availableProcessors()
-            val concurrency = maxOf(2, cores - 2)
+            val concurrency = maxOf(2, cores / 2)
             val fallbackResult = ShellExecutor.executeBinary(
                 binaryPath = localBinary.absolutePath,
                 args = listOf(inputFile.absolutePath, "-o",

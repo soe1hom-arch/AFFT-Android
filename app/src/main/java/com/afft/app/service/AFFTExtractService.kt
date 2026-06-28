@@ -71,7 +71,7 @@ class AFFTExtractService : Service() {
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "AFFT:ExtractWakeLock"
             )
-            wakeLock?.acquire(10 * 60 * 1000L) // 10 menit timeout safety
+            wakeLock?.acquire() // akan di-release di onDestroy() setelah selesai
             android.util.Log.d("AFFTExtractService", "WakeLock acquired")
         } catch (e: Exception) {
             android.util.Log.e("AFFTExtractService", "Failed to acquire WakeLock: ${e.message}")
