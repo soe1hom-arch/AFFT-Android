@@ -18,6 +18,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.afft.app.service.AFFTService
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.afft.app.ui.components.ProcessingOverlay
 import com.afft.app.ui.components.TerminalView
 import com.afft.app.ui.FileManagerScreen
@@ -162,7 +166,7 @@ fun MainScreen(afftService: AFFTService) {
                     )
                     Row {
                         // Copy log ke clipboard
-                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val context = LocalContext.current
                         IconButton(
                             onClick = {
                                 val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -173,7 +177,7 @@ fun MainScreen(afftService: AFFTService) {
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.ContentCopy,
+                                imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "Copy Log",
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -197,7 +201,7 @@ fun MainScreen(afftService: AFFTService) {
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.SaveAlt,
+                                imageVector = Icons.Default.SaveAlt,
                                 contentDescription = "Save Log",
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
