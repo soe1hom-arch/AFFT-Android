@@ -21,6 +21,7 @@ import com.afft.app.ui.components.WorkspaceFileBrowserDialog
 import kotlinx.coroutines.launch
 import java.io.File
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesystemScreen(
     afftService: AFFTService,
