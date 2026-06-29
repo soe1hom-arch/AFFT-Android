@@ -1500,16 +1500,54 @@ class AFFTService(private val context: Context) {
                 onProgress = { addLog(it) }
             )
 
-            if (result.exitCode == 0) {
-                addLog("[OK] $bootType unpacked to $outDir")
-                // List extracted files
+            // magiskboot exit codes: 0=valid, 1=error, 2=chromeos, 3=vendor_boot
+            // Exit 3 is NOT an error - it means the image is a vendor_boot type
+            when {
+                result.exitCode == 0 -> {
+                    addLog("[OK] $bootType unpacked to $outDir")
+                }
+                result.exitCode == 3 -> {
+                    addLog("[OK] $bootType unpacked (vendor_boot format) to $outDir")
+                }
+                result.exitCode == 139 -> {
+                    addLog("[WARN] magiskboot crash (exit 139) saat unpack $bootType")
+                    addLog("[WARN] $bootType mungkin tidak didukung oleh binary magiskboot ini")
+                    // Fallback: coba unpack tanpa decompress (-n flag)
+                    addLog("[INFO] Mencoba unpack mode raw (-n)...")
+                    val fallbackResult = ShellExecutor.executeWithProgress(
+                        command = listOf(magisk, "unpack", "-n", bootCopy.absolutePath),
+                        workingDir = outDir,
+                        onProgress = { addLog(it) }
+                    )
+                    if (fallbackResult.exitCode == 0 || fallbackResult.exitCode == 3) {
+                        addLog("[OK] $bootType unpacked (raw mode)")
+                    } else {
+                        addLog("[FAIL] Raw unpack juga gagal (exit ${fallbackResult.exitCode})")
+                        addLog("[INFO] $bootType tidak dapat di-unpack dengan magiskboot yang tersedia")
+                    }
+                }
+                else -> {
+                    addLog("[FAIL] magiskboot unpack failed (exit ${result.exitCode})")
+                    result.errorOutput.forEach { addLog("[ERROR] $it") }
+                    addLog("[INFO] $bootType mungkin tidak didukung oleh binary magiskboot ini")
+                }
+            }
+            
+            // List extracted files if outDir has any
+            if (outDir.exists()) {
                 val files = outDir.listFiles()?.filter { it.isFile }?.map { it.name } ?: emptyList()
-                files.forEach { addLog("  - $it") }
-                OperationResult(true, "Unpack $bootType", "Boot unpacked",
-                    outDir.absolutePath)
+                if (files.isNotEmpty()) {
+                    files.forEach { addLog("  - $it") }
+                    addLog("[OK] $bootType unpacked to $outDir")
+                    OperationResult(true, "Unpack $bootType", "Boot unpacked",
+                        outDir.absolutePath)
+                } else {
+                    addLog("[FAIL] Tidak ada file yang terekstrak")
+                    OperationResult(false, "Unpack $bootType",
+                        "magiskboot failed (exit ${result.exitCode})")
+                }
             } else {
-                addLog("[FAIL] magiskboot unpack failed (exit ${result.exitCode})")
-                result.errorOutput.forEach { addLog("[ERROR] $it") }
+                addLog("[FAIL] Output directory tidak ditemukan")
                 OperationResult(false, "Unpack $bootType",
                     "magiskboot failed (exit ${result.exitCode})")
             }
