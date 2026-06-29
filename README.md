@@ -251,5 +251,5 @@ The included third-party binaries are subject to their respective licenses (GPL,
 ---
 
 <p align="center">
-  <sub>© 2026 Wandi · Built with ❤️ for the Android modding community</sub>
+  <sub>© 2026 Wandi · Built for the Android modding community</sub>
 </p>
