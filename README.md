@@ -1,124 +1,223 @@
-# AFFT-Android
+<h1 align="center">AFFT-Android</h1>
 
-**Android Firmware Full Toolkit** — Aplikasi Android untuk memodifikasi firmware Android.  
-Dibangun dengan **Kotlin + Jetpack Compose**.
+<p align="center">
+  <strong>Android Firmware Full Toolkit</strong><br>
+  <em>Aplikasi Android native untuk memodifikasi firmware — tanpa PC, tanpa Termux.</em>
+</p>
 
-> **Developer:** soe1hom-arch / Wandi  
-> **Version:** 2.0.4  
-> **Lisensi:** Open-source
+<p align="center">
+  <a href="https://github.com/soe1hom-arch/AFFT-Android/releases">
+    <img src="https://img.shields.io/github/v/release/soe1hom-arch/AFFT-Android?style=for-the-badge&label=Release&color=blue" alt="Release">
+  </a>
+  <a href="https://github.com/soe1hom-arch/AFFT-Android/releases">
+    <img src="https://img.shields.io/github/downloads/soe1hom-arch/AFFT-Android/total?style=for-the-badge&label=Downloads&color=success" alt="Downloads">
+  </a>
+  <br>
+  <img src="https://img.shields.io/badge/Android-8.0%2B-brightgreen?style=flat-square&logo=android" alt="Android">
+  <img src="https://img.shields.io/badge/ARM64-only-red?style=flat-square" alt="ARM64">
+  <img src="https://img.shields.io/badge/Kotlin-Jetpack_Compose-purple?style=flat-square&logo=kotlin" alt="Kotlin">
+</p>
 
 ---
 
-## Fitur
+## 📥 Download
 
-### 📦 Payload
-- **Ekstrak** `payload.bin` — Bongkar OTA firmware Android
-- **Repack** dari folder hasil ekstraksi
-- ✅ Terbukti bekerja
+> ⚠️ **Beta Release** — AFFT saat ini dalam tahap **beta**. Beberapa fitur mungkin masih mengandung bug atau belum stabil. Laporkan issue jika menemukan masalah.
 
-### 💾 Super
-- **Unpack** `super.img` — Bongkar logical partitions (sparse support)
-- **Repack** dari folder hasil unpack
+| Variant | Link | Ukuran |
+|---------|------|--------|
+| **Latest Release** (signed) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/latest) | ~17 MB |
+| Debug Build (unsigned) | [⬇️ Download Artifact](https://github.com/soe1hom-arch/AFFT-Android/actions/workflows/build-apk.yml) | ~25 MB |
+
+**Cara Install:**
+1. Download APK dari rilis terbaru di atas
+2. Buka file APK di HP (aktifkan "Install from Unknown Sources")
+3. Jika muncul peringatan Play Protect, pilih **"Install Anyway"**
+4. Berikan izin **"Manage All Files"** saat pertama membuka aplikasi
+
+---
+
+## ✨ Fitur
+
+### 📦 Payload Dumper
+- **Ekstrak** `payload.bin` — bongkar OTA firmware Android (system, product, vendor, dll.)
+- **Repack** dari folder hasil ekstraksi kembali ke `payload.bin`
+- ⚡ Ekstraksi multi-core dengan binary **payload-dumper-go** (CGO, statically linked)
+- 📊 Real-time progress bar dengan gaya terminal
+- 🔄 Auto-detect file input dari folder kerja
+
+### 💾 Super Image
+- **Unpack** `super.img` — bongkar logical partitions (sparse & raw support)
+- **Repack** dari folder hasil unpack kembali ke `super.img`
 
 ### 🗂 Filesystem
-- **Ekstrak** filesystem (EROFS & ext4) dari file `.img`
-- **Repack** filesystem dari folder hasil ekstraksi
-- Auto-detect tipe filesystem
-- ✅ Terbukti bekerja
+- **Ekstrak** partisi EROFS & ext4 dari file `.img`
+- **Repack** folder hasil ekstraksi kembali ke file `.img`
+- Auto-detect tipe filesystem (EROFS / ext4)
 
-### 👢 Boot Family
-Unpack & Repack 7 jenis boot image:
-- `boot.img` · `vendor_boot.img` · `init_boot.img`
-- `dtbo.img` · `recovery.img` · `vbmeta.img`
-- `vendor_kernel_boot.img`
+### 👢 Boot Image
+Unpack & Repack **7 jenis** boot image:
+| Image | Deskripsi |
+|-------|-----------|
+| `boot.img` | Kernel + ramdisk utama |
+| `vendor_boot.img` | Vendor ramdisk |
+| `init_boot.img` | Init ramdisk terpisah |
+| `dtbo.img` | Device Tree Blob Overlay |
+| `recovery.img` | Recovery ramdisk |
+| `vbmeta.img` | Verified Boot metadata |
+| `vendor_kernel_boot.img` | Vendor kernel + ramdisk |
 
 ### 📁 File Manager
-- Browse folder `temp/`, `work/`, `input/`, `Downloads/AFFT/`
-- Lihat struktur file hasil ekstraksi
-- Layout stabil: selalu tampilkan minimal 5 item
-- Tampilkan/sembunyikan ukuran file
+- Jelajahi folder kerja: `input/`, `temp/`, `Downloads/AFFT/`
+- Lihat struktur hasil ekstraksi dengan layout stabil
+- Toggle tampilan ukuran file
 
-### 🖥 Console Log (Sidebar)
-- **Sidebar drawer** — Geser dari kiri layar atau tap ikon ☰
-- Output real-time semua operasi
-- Tombol **Clear** untuk membersihkan log
-- Log sudah dipindahkan dari semua screen ke satu tempat terpusat
+### 🖥 Console Output
+- **Sidebar drawer** — geser dari kiri layar atau tap ☰
+- Output real-time semua operasi dengan log berwarna (`[INFO]`, `[OK]`, `[ERROR]`, `[WARN]`)
+- Auto-scroll ke baris terbaru
+- Log viewer untuk membaca file log session sebelumnya
+- Copy / simpan log ke clipboard atau file
 
 ### 🧹 Clean & Export
-- **Clean** — Hapus folder kerja (img, contents, payload, boot_out, dll.)
-  - ✅ Safety check dengan `canonicalPath`, anti symlink traversal
-  - ✅ Tidak akan hapus di luar folder kerja
-- **Export** — Pindahkan hasil kerja ke `Downloads/AFFT/`
-  - ✅ `renameTo` = instan (seperti `mv` di Termux)
-  - ✅ Fallback `copyRecursively` jika rename gagal
-  - ✅ Aman: error hapus sumber tidak gagalkan export
+- **Clean** — hapus folder kerja dengan safety check (canonical path, anti symlink traversal)
+- **Export instan** — pindahkan hasil ke `Downloads/AFFT/` dengan `renameTo` (seperti `mv` di Termux)
+- ✅ Aman: tidak akan hapus di luar folder kerja
 
 ---
 
-## Persyaratan
+## 📋 Persyaratan
 
 | Persyaratan | Detail |
 |-------------|--------|
-| **Android** | 8.0 (API 26) ke atas |
+| **Android** | 8.0 (API 26) atau lebih baru |
+| **Arsitektur** | **ARM64** (aarch64) — hanya |
+| **RAM** | Minimal 4 GB (disarankan 6 GB+) |
+| **Penyimpanan** | Minimal 10 GB free untuk firmware besar |
 | **Izin** | `MANAGE_EXTERNAL_STORAGE` (manajemen file penuh) |
-| **Arch** | ARM64 / aarch64 (native binary untuk arsitektur ARM) |
 
 ---
 
-## Cara Build
+## 🏗 Cara Build
 
-### GitHub Actions (Rekomendasi)
-Push ke branch `main` atau `master`, APK akan otomatis dibuild oleh GitHub Actions.  
-Download dari tab **Actions** → pilih workflow → **Artifacts** → `AFFT-APK-Debug`.
+### GitHub Actions (otomatis)
+Push ke branch `main` → workflow akan otomatis build APK. Download dari tab **Actions**.
+
+```bash
+git push origin main
+```
 
 ### Build Lokal
 ```bash
-git clone https://github.com/soe1hom-arch/AFFT-Android
+git clone https://github.com/soe1hom-arch/AFFT-Android.git
 cd AFFT-Android
+
+# Prasyarat: Android SDK, NDK, Go 1.22+
+
+# Build binary native
+chmod +x tools/build_payload_dumper.sh
+./tools/build_payload_dumper.sh
+
+# Build APK debug
 ./gradlew assembleDebug
+# → app/build/outputs/apk/debug/app-debug.apk
 ```
-APK: `app/build/outputs/apk/debug/app-debug.apk`
 
----
+### Release Build
+```bash
+export KEYSTORE_PATH="release-key.jks"
+export KEYSTORE_PASSWORD="your_password"
+export KEY_ALIAS="my-release-key"
+export KEY_PASSWORD="your_password"
 
-## Struktur Direktori
-
-```
-/storage/emulated/0/Android/data/com.afft.app/files/afft_work/
-├── input/              ← Tempat file input (payload.bin, super.img, dll)
-└── temp/
-    ├── img/            ← Image hasil repack / output
-    ├── contents/       ← Hasil ekstraksi filesystem
-    ├── Payload/        ← Hasil ekstraksi payload.bin
-    ├── boot_out/       ← Hasil unpack boot images
-    ├── repacked/       ← Hasil repack
-    └── logs/           ← Log operasi
-
-/storage/emulated/0/Download/AFFT/   ← Hasil export
+./gradlew assembleRelease
+# → app/build/outputs/apk/release/app-release.apk
 ```
 
 ---
 
-## Rencana Pengembangan
+## 📁 Struktur Direktori
 
-- [x] Ekstrak & Repack payload.bin
-- [x] Unpack & Repack super.img
-- [x] Ekstrak & Repack filesystem (EROFS/ext4)
-- [x] Unpack & Repack boot images
-- [x] File Manager
-- [x] Export instan (renameTo)
-- [x] Safety check Clean (anti hapus sembarangan)
-- [x] Sidebar drawer untuk console log
-- [x] About dialog profesional
-- [ ] Uji coba Payload & Super
-- [ ] Uji coba Boot images
+```
+/storage/emulated/0/Android/data/com.afft.app/files/
+├── input/                ← File input (payload.bin, super.img, dll)
+├── temp/
+│   ├── Payload/          ← Hasil ekstraksi payload.bin
+│   ├── img/              ← Image hasil repack
+│   ├── contents/         ← Hasil ekstraksi filesystem
+│   ├── super_out/        ← Hasil unpack super.img
+│   ├── boot_out/         ← Hasil unpack boot images
+│   ├── repacked/         ← Hasil repack
+│   └── logs/             ← Log session operasi
+
+/storage/emulated/0/Download/AFFT/  ← Hasil export
+```
+
+---
+
+## 🛠 Teknologi
+
+| Komponen | Teknologi |
+|----------|-----------|
+| **Bahasa** | Kotlin |
+| **UI** | Jetpack Compose + Material 3 |
+| **Min SDK** | 26 (Android 8.0) |
+| **Target SDK** | 35 (Android 15) |
+| **Background** | Foreground Service + WakeLock |
+| **Native Binary** | payload-dumper-go (Go + CGO, static) |
+| **CI/CD** | GitHub Actions |
+| **Signing** | JKS keystore via GitHub Secrets |
+
+---
+
+## 🧪 Status Pengembangan
+
+**Saat ini: Beta v2.0.4**
+
+- [x] Ekstrak payload.bin (✅ stabil)
+- [x] Unpack/Repack super.img
+- [x] Ekstrak/Repack filesystem (EROFS/ext4)
+- [x] Unpack/Repack 7 jenis boot image
+- [x] File manager
+- [x] Console log sidebar (real-time, log viewer)
+- [x] About dialog (EN/ID bilingual)
+- [x] Clean & Export dengan safety check
+- [ ] Uji coba Payload & Super (QA)
+- [ ] Uji coba Boot images (QA)
 - [ ] Backup & restore
+- [ ] GUI-based partition editor
+- [ ] Update OTA firmware checker
+
+> **Beta Disclaimer:** Aplikasi ini masih dalam tahap pengembangan aktif. Beberapa edge case mungkin belum tertangani. Selalu backup data penting sebelum memodifikasi firmware.
 
 ---
 
-## Credits
+## 🐛 Melaporkan Masalah
 
-Developer/Dikembangkan oleh **soe1hom-arch / Wandi**  
-— _AFFT: Alat Modifikasi Firmware Android sederhana yang langsung bisa di install di hp android anda,tanpa perlu terminal linux
+Jika menemukan bug atau memiliki saran:
+1. Cek [Issues](https://github.com/soe1hom-arch/AFFT-Android/issues) — apakah sudah ada laporan serupa
+2. Buka issue baru dengan format:
+   - **Device** & **Android version**
+   - **Langkah reproduksi**
+   - **Screenshot / log** jika ada
+   - File log dari `temp/logs/`
 
-Project open-source, gunakan dengan bijak.
+---
+
+## 👨‍💻 Pengembang
+
+**Wandi / soe1hom-arch** — _Android Firmware Enthusiast_
+
+> Proyek open-source untuk alat modifikasi firmware yang portabel dan jalan langsung di HP tanpa PC.
+
+<p align="center">
+  <a href="https://github.com/soe1hom-arch/AFFT-Android/issues">Report Issue</a>
+  ·
+  <a href="https://github.com/soe1hom-arch/AFFT-Android/discussions">Discussions</a>
+</p>
+
+---
+
+<p align="center">
+  <sub>© 2026 Wandi · Dibangun dengan ❤️ untuk komunitas Android Indonesia</sub>
+</p>
