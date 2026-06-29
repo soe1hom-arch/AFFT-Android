@@ -15,7 +15,9 @@ import androidx.compose.ui.unit.dp
 import com.afft.app.model.BootImageType
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
+import com.afft.app.ui.components.FileSourceSelectorDialog
 import com.afft.app.ui.components.ProcessingOverlay
+import com.afft.app.ui.components.WorkspaceFileBrowserDialog
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -33,6 +35,11 @@ fun BootScreen(
     var selectedBootType by remember { mutableStateOf<BootImageType?>(null) }
     var selectedInputFile by remember { mutableStateOf<File?>(null) }
 
+    // Dialogs state
+    var showSourceSelector by remember { mutableStateOf(false) }
+    var showWorkspaceBrowser by remember { mutableStateOf(false) }
+    var browseDir by remember { mutableStateOf(afftService.getInputDir()) }
+
     // Auto-detect file dari input/ saat screen dimuat (untuk menghindari copy ulang)
     LaunchedEffect(Unit) {
         val latestFile = afftService.getLatestInputFile()
@@ -43,12 +50,12 @@ fun BootScreen(
         }
     }
 
-
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             selectedUri = it
+            selectedInputFile = null
             try {
                 context.contentResolver.query(it, null, null, null, null)?.use { c ->
                     if (c.moveToFirst()) {
@@ -65,11 +72,43 @@ fun BootScreen(
                 android.util.Log.w("BootScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
-            // Auto-copy picked file to input/ directory dan simpan referensi lokal
             scope.launch {
                 selectedInputFile = afftService.copyPickedFileToInput(it)
             }
         }
+    }
+
+    // ── Source Selector Dialog ──
+    if (showSourceSelector) {
+        FileSourceSelectorDialog(
+            onPickFromStorage = {
+                filePicker.launch(arrayOf("application/octet-stream", "*/*"))
+            },
+            onPickFromWorkspace = {
+                browseDir = afftService.getInputDir()
+                showWorkspaceBrowser = true
+            },
+            onDismiss = { showSourceSelector = false }
+        )
+    }
+
+    // ── Workspace Browser Dialog ──
+    if (showWorkspaceBrowser) {
+        WorkspaceFileBrowserDialog(
+            title = "Pilih boot image",
+            currentDir = browseDir,
+            onNavigate = { dir -> browseDir = dir },
+            onFileSelected = { file ->
+                selectedInputFile = file
+                selectedFileName = file.name
+                selectedUri = null
+                selectedBootType = BootImageType.entries.find { type ->
+                    type.fileName == file.name
+                }
+                showWorkspaceBrowser = false
+            },
+            onDismiss = { showWorkspaceBrowser = false }
+        )
     }
 
     Column(
@@ -124,9 +163,9 @@ fun BootScreen(
 
         FilePickerCard(
             title = "Pilih file boot image",
-            selectedUri = selectedUri,
+            selectedUri = if (selectedInputFile != null) null else selectedUri,
             selectedFileName = selectedFileName,
-            onClick = { filePicker.launch(arrayOf("application/octet-stream", "*/*")) }
+            onClick = { showSourceSelector = true }
         )
 
         Spacer(modifier = Modifier.height(16.dp))

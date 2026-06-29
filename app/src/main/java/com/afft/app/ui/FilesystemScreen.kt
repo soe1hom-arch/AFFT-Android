@@ -15,13 +15,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
+import com.afft.app.ui.components.FileSourceSelectorDialog
 import com.afft.app.ui.components.ProcessingOverlay
-import androidx.compose.material3.ExperimentalMaterial3Api
+import com.afft.app.ui.components.WorkspaceFileBrowserDialog
 import kotlinx.coroutines.launch
 import java.io.File
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 fun FilesystemScreen(
     afftService: AFFTService,
     logs: List<String>,
@@ -36,6 +36,11 @@ fun FilesystemScreen(
     var selectedDir by remember { mutableStateOf<String?>(null) }
     var expanded by remember { mutableStateOf(false) }
 
+    // Dialogs state
+    var showSourceSelector by remember { mutableStateOf(false) }
+    var showWorkspaceBrowser by remember { mutableStateOf(false) }
+    var browseDir by remember { mutableStateOf(afftService.getInputDir()) }
+
     // Auto-detect file dari input/ saat screen dimuat (untuk menghindari copy ulang)
     LaunchedEffect(Unit) {
         val latestFile = afftService.getLatestInputFile()
@@ -46,12 +51,12 @@ fun FilesystemScreen(
         }
     }
 
-
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             selectedUri = it
+            selectedInputFile = null
             try {
                 context.contentResolver.query(it, null, null, null, null)?.use { c ->
                     if (c.moveToFirst()) {
@@ -63,7 +68,6 @@ fun FilesystemScreen(
                 android.util.Log.w("FilesystemScreen", "Query failed: ${e.message}")
                 selectedFileName = it.lastPathSegment
             }
-            // Auto-copy picked file to input/ directory dan simpan referensi lokal
             scope.launch {
                 selectedInputFile = afftService.copyPickedFileToInput(it)
             }
@@ -72,6 +76,36 @@ fun FilesystemScreen(
 
     LaunchedEffect(Unit) {
         availableDirs = afftService.listContentsDirs()
+    }
+
+    // ── Source Selector Dialog ──
+    if (showSourceSelector) {
+        FileSourceSelectorDialog(
+            onPickFromStorage = {
+                filePicker.launch(arrayOf("application/octet-stream", "*/*"))
+            },
+            onPickFromWorkspace = {
+                browseDir = afftService.getInputDir()
+                showWorkspaceBrowser = true
+            },
+            onDismiss = { showSourceSelector = false }
+        )
+    }
+
+    // ── Workspace Browser Dialog ──
+    if (showWorkspaceBrowser) {
+        WorkspaceFileBrowserDialog(
+            title = "Pilih filesystem .img",
+            currentDir = browseDir,
+            onNavigate = { dir -> browseDir = dir },
+            onFileSelected = { file ->
+                selectedInputFile = file
+                selectedFileName = file.name
+                selectedUri = null
+                showWorkspaceBrowser = false
+            },
+            onDismiss = { showWorkspaceBrowser = false }
+        )
     }
 
     Column(
@@ -99,9 +133,9 @@ fun FilesystemScreen(
 
         FilePickerCard(
             title = "Pilih filesystem .img",
-            selectedUri = selectedUri,
+            selectedUri = if (selectedInputFile != null) null else selectedUri,
             selectedFileName = selectedFileName,
-            onClick = { filePicker.launch(arrayOf("application/octet-stream", "*/*")) }
+            onClick = { showSourceSelector = true }
         )
 
         Spacer(modifier = Modifier.height(8.dp))

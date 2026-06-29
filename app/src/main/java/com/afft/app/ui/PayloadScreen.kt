@@ -16,7 +16,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.afft.app.service.AFFTService
 import com.afft.app.ui.components.FilePickerCard
+import com.afft.app.ui.components.FileSourceSelectorDialog
 import com.afft.app.ui.components.ProcessingOverlay
+import com.afft.app.ui.components.WorkspaceFileBrowserDialog
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -35,6 +37,11 @@ fun PayloadScreen(
     val progressPercent by afftService.progressPercent.collectAsState()
     val currentPartition by afftService.currentPartition.collectAsState()
 
+    // Dialogs state
+    var showSourceSelector by remember { mutableStateOf(false) }
+    var showWorkspaceBrowser by remember { mutableStateOf(false) }
+    var browseDir by remember { mutableStateOf(afftService.getInputDir()) }
+
     // Auto-detect file dari input/ saat screen dimuat (untuk menghindari copy ulang)
     LaunchedEffect(Unit) {
         val latestFile = afftService.getLatestInputFile()
@@ -44,12 +51,14 @@ fun PayloadScreen(
             selectedUri = null
         }
     }
-    // Auto-detect file dari input/ saat screen dimuat (misal setelah restart app)
+
+    // System file picker (dari penyimpanan perangkat)
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             selectedUri = it
+            selectedInputFile = null
             errorMessage = null
             try {
                 val cursor = context.contentResolver.query(it, null, null, null, null)
@@ -78,6 +87,36 @@ fun PayloadScreen(
         }
     }
 
+    // ── Source Selector Dialog ──
+    if (showSourceSelector) {
+        FileSourceSelectorDialog(
+            onPickFromStorage = {
+                filePicker.launch(arrayOf("application/octet-stream", "*/*"))
+            },
+            onPickFromWorkspace = {
+                browseDir = afftService.getInputDir()
+                showWorkspaceBrowser = true
+            },
+            onDismiss = { showSourceSelector = false }
+        )
+    }
+
+    // ── Workspace Browser Dialog ──
+    if (showWorkspaceBrowser) {
+        WorkspaceFileBrowserDialog(
+            title = "Pilih payload.bin",
+            currentDir = browseDir,
+            onNavigate = { dir -> browseDir = dir },
+            onFileSelected = { file ->
+                selectedInputFile = file
+                selectedFileName = file.name
+                selectedUri = null
+                showWorkspaceBrowser = false
+            },
+            onDismiss = { showWorkspaceBrowser = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -99,11 +138,11 @@ fun PayloadScreen(
 
         FilePickerCard(
             title = "Pilih payload.bin",
-            selectedUri = selectedUri,
+            selectedUri = if (selectedInputFile != null) null else selectedUri,
             selectedFileName = selectedFileName,
-            onClick = { 
+            onClick = {
                 errorMessage = null
-                filePicker.launch(arrayOf("application/octet-stream", "*/*")) 
+                showSourceSelector = true
             }
         )
 
