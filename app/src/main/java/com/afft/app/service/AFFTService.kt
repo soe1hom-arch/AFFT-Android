@@ -151,6 +151,14 @@ class AFFTService(private val context: Context) {
         if (isProgressBarLine(text)) {
             return
         }
+        // Filter erofs xattr warnings (noise from mkfs.erofs on FUSE filesystem)
+        // These are not errors - just warnings about inaccessible extended attributes
+        if (text.contains("skipped inaccessible xattr", ignoreCase = true) ||
+            text.contains("posix_acl_default", ignoreCase = true) ||
+            text.contains("posix_acl_access", ignoreCase = true) ||
+            text.contains("erofs: skipped", ignoreCase = true)) {
+            return
+        }
 
         // Efficient O(1) add ke mutable buffer (hindari O(n) copy listOf)
         logBuffer.add(text)
