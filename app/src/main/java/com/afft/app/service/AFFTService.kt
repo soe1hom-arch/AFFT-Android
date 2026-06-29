@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Wandi (soe1hom-arch). All rights reserved.
+ */
+
 package com.afft.app.service
 
 import android.content.Context

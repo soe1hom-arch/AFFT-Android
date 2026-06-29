@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Wandi (soe1hom-arch). All rights reserved.
+ */
+
 package com.afft.app.ui.theme
 
 import androidx.compose.material3.Typography

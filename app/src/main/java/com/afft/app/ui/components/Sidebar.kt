@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Wandi (soe1hom-arch). All rights reserved.
+ */
+
 package com.afft.app.ui.components
 
 import androidx.compose.foundation.background
@@ -246,4 +250,3 @@ fun formatTimestamp(timestamp: Long): String {
         String.format("%02d:%02d", minutes, secs)
     }
 }
-
