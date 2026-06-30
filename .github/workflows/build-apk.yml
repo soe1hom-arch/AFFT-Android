@@ -189,19 +189,12 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}
 
       - name: Create Beta Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "${{ steps.version.outputs.name }}"
-          body: |
-            ## AFFT Beta Stable
-            
-            **Build:** ${{ github.run_number }}
-            ⚠️ Automated beta build.
-          files: app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}
-          prerelease: true
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}"             --title "${{ steps.version.outputs.name }}"             --notes "## AFFT Beta Stable
+
+**Build:** ${{ github.run_number }}
+⚠️ Automated beta build."             --prerelease             "app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
 
