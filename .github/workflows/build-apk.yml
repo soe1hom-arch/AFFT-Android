@@ -9,11 +9,6 @@ on:
       - '.gitignore'
       - 'LICENSE'
   workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for manual trigger'
-        required: false
-        type: string
 
 concurrency:
   group: build-apk
