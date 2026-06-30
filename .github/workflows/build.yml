@@ -5,7 +5,6 @@ on:
     branches: [ "main", "master" ]
     paths-ignore:
       - '**.md'
-      - '.github/workflows/*.yml'
       - '.gitignore'
       - 'LICENSE'
   workflow_dispatch: {}
@@ -188,13 +187,17 @@ jobs:
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}
 
-      - name: Create Beta Release
+      - name: Create Release
         run: |
-          gh release create "${{ steps.version.outputs.tag }}"             --title "${{ steps.version.outputs.name }}"             --notes "## AFFT Beta Stable
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.name }}" \
+            --notes "## AFFT Beta Stable
 
-**Build:** ${{ github.run_number }}
-⚠️ Automated beta build."             --prerelease             "app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}"
+            **Build:** ${{ github.run_number }}
+            ⚠️ Automated build." \
+            "app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}"
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
 
+# Updated: Wed Jul  1 01:40:04 WIB 2026
