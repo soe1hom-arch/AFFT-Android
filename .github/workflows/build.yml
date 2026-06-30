@@ -7,7 +7,7 @@ on:
       - '**.md'
       - '.gitignore'
       - 'LICENSE'
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 concurrency:
   group: build-apk
@@ -193,8 +193,8 @@ jobs:
             --title "${{ steps.version.outputs.name }}" \
             --notes "## AFFT Beta Stable
 
-**Build:** ${{ github.run_number }}
-⚠️ Automated build." \
+            **Build:** ${{ github.run_number }}
+            ⚠️ Automated build." \
             "app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}"
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
