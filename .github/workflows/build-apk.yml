@@ -214,8 +214,8 @@ jobs:
 
       - name: Commit README update
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
           git add README.md
           if ! git diff --cached --quiet; then
             git commit -m "docs: update latest beta download link [skip ci]"
