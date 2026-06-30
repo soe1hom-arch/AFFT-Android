@@ -28,7 +28,7 @@
 | Variant | Link | Size |
 |---------|------|------|
 | **Latest Release** (signed) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/latest) | ~17 MB |
-| **Latest Beta** (auto-build) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/latest) | ~17 MB |
+| **Latest Beta** (auto-build) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/download/beta-20260630-124/AFFT-2.0.9-beta.20260630.124.apk) | ~17 MB |
 
 **Installation:**
 1. Download the APK from the latest release above
