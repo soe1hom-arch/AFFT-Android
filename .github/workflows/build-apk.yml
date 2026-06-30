@@ -209,7 +209,7 @@ jobs:
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${{ steps.version.outputs.apk }}"
           
           echo "Updating README with: $APK_URL"
-          sed -i "s|https://github.com/soe1hom-arch/AFFT-Android/releases/latest|$APK_URL|g" README.md
+          sed -i "s|https://github.com/soe1hom-arch/AFFT-Android/releases/download/[^/]*/[^)]*|$APK_URL|g" README.md
           grep "Download" README.md
 
       - name: Commit README update
