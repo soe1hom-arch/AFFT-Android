@@ -25,13 +25,10 @@
 
 > ⚠️ **Beta Release** — AFFT is currently in **beta**. Some features may still contain bugs or be unstable. Please report issues on GitHub.
 
-| Variant | Link | Size |
-|---------|------|------|
-| **Latest Release** (signed) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/latest) | ~17 MB |
-| **Latest Beta** (auto-build) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/download/beta-20260630-128/AFFT-2.0.9-beta.20260630.128.apk) | ~17 MB |
+[⬇️ **Download Latest APK**](https://github.com/soe1hom-arch/AFFT-Android/releases/latest)
 
 **Installation:**
-1. Download the APK from the latest release above
+1. Download the APK from the link above
 2. Open the APK on your device (enable "Install from Unknown Sources")
 3. If Google Play Protect shows a warning, tap **"Install Anyway"**
 4. Grant **"Manage All Files"** permission when first launching the app
