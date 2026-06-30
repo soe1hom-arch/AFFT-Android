@@ -25,7 +25,7 @@
 
 > ⚠️ **Beta Release** — AFFT is currently in **beta**. Some features may still contain bugs or be unstable. Please report issues on GitHub.
 
-[⬇️ **Download Latest APK**](https://github.com/soe1hom-arch/AFFT-Android/releases/download/v2.0.9-beta-135/AFFT-Beta-Stable_v2.0.9-b135.apk)
+[⬇️ **Download Latest APK**](https://github.com/soe1hom-arch/AFFT-Android/releases/latest)
 
 **Installation:**
 1. Download the APK from the link above
