@@ -181,6 +181,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/AFFT-${{ steps.version.outputs.version }}.apk
 
       - name: Create Beta Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
@@ -198,3 +199,26 @@ jobs:
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update README with latest beta link
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          APK_URL="https://github.com/${{ github.repository }}/releases/download/$TAG/AFFT-$VERSION.apk"
+          
+          echo "Updating README with: $APK_URL"
+          sed -i "s|https://github.com/soe1hom-arch/AFFT-Android/releases/download/beta-[^/]*/[^"]*|$APK_URL|g" README.md
+          grep "Latest Beta" README.md
+
+      - name: Commit README update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: update latest beta download link [skip ci]"
+            git push
+            echo "README updated!"
+          else
+            echo "No changes needed"
+          fi
