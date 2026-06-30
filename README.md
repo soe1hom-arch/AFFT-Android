@@ -28,7 +28,6 @@
 | Variant | Link | Size |
 |---------|------|------|
 | **Latest Release** (signed) | [⬇️ Download APK](https://github.com/soe1hom-arch/AFFT-Android/releases/latest) | ~17 MB |
-| Debug Build (unsigned) | [⬇️ Download Artifact](https://github.com/soe1hom-arch/AFFT-Android/actions/workflows/build-apk.yml) | ~25 MB |
 
 **Installation:**
 1. Download the APK from the latest release above
