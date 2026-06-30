@@ -3,8 +3,6 @@ name: Build AFFT APK
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -62,17 +60,11 @@ jobs:
 
           # Build liblzma.a
           LZMA_VER="5.4.6"
-          curl -sLo "xz-${LZMA_VER}.tar.xz" \
-            "https://github.com/tukaani-project/xz/releases/download/v${LZMA_VER}/xz-${LZMA_VER}.tar.xz"
+          curl -sLo "xz-${LZMA_VER}.tar.xz"             "https://github.com/tukaani-project/xz/releases/download/v${LZMA_VER}/xz-${LZMA_VER}.tar.xz"
           rm -rf "xz-${LZMA_VER}"
           tar -xf "xz-${LZMA_VER}.tar.xz"
           cd "xz-${LZMA_VER}"
-          ./configure --host=aarch64-linux-android --prefix="$WORK_DIR/xz-install" \
-            CC="$CC" AR="$AR" RANLIB="$RANLIB" \
-            --enable-static --disable-shared \
-            --disable-xz --disable-xzdec --disable-lzmadec \
-            --disable-lzmainfo --disable-lzma-links \
-            --disable-scripts --disable-doc --with-pic
+          ./configure --host=aarch64-linux-android --prefix="$WORK_DIR/xz-install"             CC="$CC" AR="$AR" RANLIB="$RANLIB"             --enable-static --disable-shared             --disable-xz --disable-xzdec --disable-lzmadec             --disable-lzmainfo --disable-lzma-links             --disable-scripts --disable-doc --with-pic
           make -j$(nproc)
           make install
 
@@ -133,10 +125,7 @@ jobs:
           GOZSTD_DIR="$GOMODCACHE/github.com/valyala/gozstd@v1.21.1"
           if [ -d "$GOZSTD_DIR" ]; then
             echo "=== Replacing gozstd .a files ==="
-            # Go downloads module files with read-only perms (0444)
             chmod -R u+w "$GOZSTD_DIR"
-            # gozstd hardcodes "linux" in .a filename even for android target
-            # So we replace libzstd_linux_arm64.a with our Android-compiled one
             rm -f "$GOZSTD_DIR/libzstd_linux_arm64.a"
             cp "$WORK_DIR/zstd/lib/libzstd.a" "$GOZSTD_DIR/libzstd_linux_arm64.a"
             ls -la "$GOZSTD_DIR/libzstd_linux_"*.a
@@ -144,21 +133,17 @@ jobs:
             echo "WARNING: gozstd not found at $GOZSTD_DIR"
           fi
 
-          go build \
-            -ldflags="-linkmode=external -s -w" \
-            -o libpayload-dumper-go.so \
-            .
+          go build             -ldflags="-linkmode=external -s -w"             -o libpayload-dumper-go.so             .
 
-          # Verify
           echo "=== Verifying ==="
           file libpayload-dumper-go.so
           NEEDED=$(readelf -d libpayload-dumper-go.so 2>/dev/null | grep NEEDED || true)
           echo "$NEEDED"
           if echo "$NEEDED" | grep -q "lzma\|zstd"; then
-            echo "❌ Native libraries still dynamic!"
+            echo "Native libraries still dynamic!"
             exit 1
           fi
-          echo "✓ Native libs statically embedded"
+          echo "Native libs statically embedded"
 
           $TOOLCHAIN/bin/llvm-strip libpayload-dumper-go.so 2>/dev/null || true
 
@@ -177,11 +162,36 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.7
 
+      - name: Generate version
+        id: version
+        run: |
+          DATE_TAG=$(date +'%Y%m%d')
+          RUN_NUM=${{ github.run_number }}
+          echo "version=2.0.9-beta.$DATE_TAG.$RUN_NUM" >> $GITHUB_OUTPUT
+          echo "tag=beta-$DATE_TAG-$RUN_NUM" >> $GITHUB_OUTPUT
+
       - name: Build APK with Gradle
         run: ./gradlew assembleDebug
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/AFFT-${{ steps.version.outputs.version }}.apk
+
+      - name: Create Beta Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: AFFT-APK-Debug
-          path: app/build/outputs/apk/debug/*.apk
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Beta ${{ steps.version.outputs.version }}"
+          body: |
+            ## AFFT Beta Build
+            
+            **Version:** ${{ steps.version.outputs.version }}
+            **Build:** ${{ github.run_number }}
+            **Branch:** ${{ github.ref_name }}
+            **Commit:** ${{ github.sha }}
+            
+            ⚠️ This is an automated beta build. May contain bugs.
+          files: app/build/outputs/apk/debug/AFFT-${{ steps.version.outputs.version }}.apk
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
