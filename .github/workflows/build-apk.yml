@@ -168,7 +168,7 @@ jobs:
       - name: Generate version
         id: version
         run: |
-          echo "version=v2.0.9-beta" >> $GITHUB_OUTPUT
+          echo "tag=v2.0.9-beta-${{ github.run_number }}" >> $GITHUB_OUTPUT
           echo "apk=AFFT-Beta-Stable_v2.0.9-b${{ github.run_number }}.apk" >> $GITHUB_OUTPUT
           echo "name=Beta Stable v2.0.9-b${{ github.run_number }}" >> $GITHUB_OUTPUT
 
@@ -183,7 +183,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.tag }}
           name: "${{ steps.version.outputs.name }}"
           body: |
             ## AFFT Beta Stable
@@ -197,7 +197,7 @@ jobs:
 
       - name: Update README with latest beta link
         run: |
-          APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/${{ steps.version.outputs.apk }}"
+          APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${{ steps.version.outputs.apk }}"
           
           echo "Updating README with: $APK_URL"
           sed -i "s|https://github.com/soe1hom-arch/AFFT-Android/releases/download/beta-[^/]*/[^ ]*|$APK_URL|g" README.md
