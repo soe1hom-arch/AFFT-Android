@@ -3,7 +3,16 @@ name: Build AFFT APK
 on:
   push:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/*.yml'
+      - '.gitignore'
+      - 'LICENSE'
   workflow_dispatch:
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -210,8 +219,8 @@ jobs:
           git add README.md
           if ! git diff --cached --quiet; then
             git commit -m "docs: update latest beta download link [skip ci]"
-            git pull --rebase
-            git push
+            git pull --rebase || true
+            git push || git push --force-with-lease
             echo "README updated!"
           else
             echo "No changes needed"
