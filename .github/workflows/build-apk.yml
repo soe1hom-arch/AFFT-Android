@@ -168,43 +168,36 @@ jobs:
       - name: Generate version
         id: version
         run: |
-          DATE_TAG=$(date +'%Y%m%d')
-          RUN_NUM=${{ github.run_number }}
-          echo "version=2.0.9-beta.$DATE_TAG.$RUN_NUM" >> $GITHUB_OUTPUT
-          echo "tag=beta-$DATE_TAG-$RUN_NUM" >> $GITHUB_OUTPUT
+          echo "version=v2.0.9-beta" >> $GITHUB_OUTPUT
+          echo "apk=AFFT-Beta-Stable_v2.0.9-b${{ github.run_number }}.apk" >> $GITHUB_OUTPUT
+          echo "name=Beta Stable v2.0.9-b${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Build APK with Gradle
         run: ./gradlew assembleDebug
 
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/AFFT-${{ steps.version.outputs.version }}.apk
+          cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}
 
       - name: Create Beta Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "Beta ${{ steps.version.outputs.version }}"
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "${{ steps.version.outputs.name }}"
           body: |
-            ## AFFT Beta Build
+            ## AFFT Beta Stable
             
-            **Version:** ${{ steps.version.outputs.version }}
             **Build:** ${{ github.run_number }}
-            **Branch:** ${{ github.ref_name }}
-            **Commit:** ${{ github.sha }}
-            
-            ⚠️ This is an automated beta build. May contain bugs.
-          files: app/build/outputs/apk/debug/AFFT-${{ steps.version.outputs.version }}.apk
+            ⚠️ Automated beta build.
+          files: app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update README with latest beta link
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          APK_URL="https://github.com/${{ github.repository }}/releases/download/$TAG/AFFT-$VERSION.apk"
+          APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/${{ steps.version.outputs.apk }}"
           
           echo "Updating README with: $APK_URL"
           sed -i "s|https://github.com/soe1hom-arch/AFFT-Android/releases/download/beta-[^/]*/[^ ]*|$APK_URL|g" README.md
