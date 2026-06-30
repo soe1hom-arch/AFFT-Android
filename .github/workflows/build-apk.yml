@@ -207,22 +207,7 @@ jobs:
           APK_URL="https://github.com/${{ github.repository }}/releases/download/$TAG/AFFT-$VERSION.apk"
           
           echo "Updating README with: $APK_URL"
-          python3 << 'INNERPY'
-import re
-with open('README.md', 'r') as f:
-    c = f.read()
-tag = "${{ steps.version.outputs.tag }}"
-ver = "${{ steps.version.outputs.version }}"
-apk_url = f"https://github.com/${{ github.repository }}/releases/download/{tag}/AFFT-{ver}.apk"
-c = re.sub(
-    r'https://github\.com/soe1hom-arch/AFFT-Android/releases/download/beta-[^/\s]+/[^\s\)]+',
-    apk_url,
-    c,
-    count=1
-)
-with open('README.md', 'w') as f:
-    f.write(c)
-INNERPY
+          sed -i "s|https://github.com/soe1hom-arch/AFFT-Android/releases/download/beta-[^/]*/[^ ]*|$APK_URL|g" README.md
           grep "Latest Beta" README.md
 
       - name: Commit README update
