@@ -14,7 +14,7 @@ accompanist = "0.32.0"
 
 junit = "4.13.2"
 androidx-test-junit = "1.1.5"
-espresso-core = "3.5.1"
+espresso-core = "3.7.0"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
