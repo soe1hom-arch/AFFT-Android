@@ -10,7 +10,7 @@ compose-bom = "2024.06.00"
 compose-compiler = "1.5.14"
 navigation-compose = "2.7.6"
 coroutines = "1.7.3"
-accompanist = "0.32.0"
+accompanist = "0.37.3"
 
 junit = "4.13.2"
 androidx-test-junit = "1.1.5"
