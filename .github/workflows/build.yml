@@ -9,7 +9,6 @@ on:
       - 'LICENSE'
       - '.mailmap'
       - '.editorconfig'
-      - '.github/**'
       - 'CONTRIBUTING.md'
       - 'push-to-github.sh'
   workflow_dispatch: {}
