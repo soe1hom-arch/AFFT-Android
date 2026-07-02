@@ -1,3 +1,4 @@
+import java.lang.Runtime
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -105,7 +106,7 @@ dependencies {
 
 fun generateVersionCode(): Int {
     return try {
-        val process = java.lang.Runtime.getRuntime().exec(arrayOf("git", "rev-list", "--count", "HEAD"))
+        val process = Runtime.getRuntime().exec(arrayOf("git", "rev-list", "--count", "HEAD"))
         process.inputStream.bufferedReader().readText().trim().toInt()
     } catch (e: Exception) {
         1
