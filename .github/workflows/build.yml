@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -178,30 +178,13 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.7
 
-      - name: Generate version
-        id: version
-        run: |
-          echo "tag=v2.0.9-beta-${{ github.run_number }}" >> $GITHUB_OUTPUT
-          echo "apk=AFFT-Beta-Stable_v2.0.9-b${{ github.run_number }}.apk" >> $GITHUB_OUTPUT
-          echo "name=Beta Stable v2.0.9-b${{ github.run_number }}" >> $GITHUB_OUTPUT
-
       - name: Build APK with Gradle
         run: ./gradlew assembleDebug
 
-      - name: Rename APK
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}
-
-      - name: Create Release
-        run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.name }}" \
-            --notes "## AFFT Beta Stable
-
-            **Build:** ${{ github.run_number }}" \
-            "app/build/outputs/apk/debug/${{ steps.version.outputs.apk }}"
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
 
 # Updated: Wed Jul  1 01:40:04 WIB 2026
