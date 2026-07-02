@@ -1,4 +1,4 @@
-name: Android Release Build
+name: 📦 Release AFFT APK · soe1hom-arch
 
 on:
   push:
