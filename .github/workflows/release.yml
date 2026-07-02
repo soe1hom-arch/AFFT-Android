@@ -203,7 +203,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk              app/build/outputs/apk/release/AFFT-Android_${{ github.ref_name }}.apk
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: app/build/outputs/apk/release/AFFT-Android_${{ github.ref_name }}.apk
         env:
